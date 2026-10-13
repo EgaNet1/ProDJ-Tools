@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ProDJ Tools</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%23f0a330'/%3E%3Ccircle cx='8' cy='8' r='2' fill='%23111'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand">ProDJ<span>Tools</span></div>
+
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-view="set" aria-selected="true">Сет</button>
+      <button role="tab" data-view="mix" aria-selected="false">Сведение</button>
+      <button role="tab" data-view="tools" aria-selected="false">Инструменты</button>
+      <button role="tab" data-view="export" aria-selected="false">Экспорт</button>
+    </nav>
+
+    <div class="folder">
+      <button class="folder-path" id="folder-toggle" aria-haspopup="true" aria-expanded="false">
+        <span id="folder-name">Папка не выбрана</span>
+        <svg viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4"/></svg>
+      </button>
+      <div class="folder-menu" id="folder-menu" hidden>
+        <button class="primary wide" data-act="pick">Выбрать папку…</button>
+        <form class="paste" id="paste-form">
+          <input name="dir" placeholder="или вставьте путь к папке" autocomplete="off" spellcheck="false">
+          <button>Открыть</button>
+        </form>
+        <p class="label">Недавние</p>
+        <ul class="recent" id="recent-menu"></ul>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- ───────────────────────────── Сет ───────────────────────────── -->
+    <section class="view" id="view-set">
+      <div class="welcome" id="welcome" hidden>
+        <h1>Соберём сет</h1>
+        <p>Откройте папку с треками. Программа определит темп, ключ и энергию каждого трека и предложит порядок, в котором они сводятся плавно.</p>
+        <button class="primary" data-act="pick">Выбрать папку…</button>
+        <ul class="recent" id="recent-welcome"></ul>
+      </div>
+
+      <div class="scanning" id="scanning" hidden>
+        <p class="label">Анализ</p>
+        <div class="progress"><div id="scan-bar"></div></div>
+        <p class="scan-text"><span id="scan-count"></span><span id="scan-file"></span></p>
+      </div>
+
+      <div class="set" id="set" hidden>
+        <div class="set-main">
+          <div class="cols" aria-hidden="true">
+            <span></span><span>#</span><span></span><span>Трек</span><span>Волна</span>
+            <span class="r">BPM</span><span>Ключ</span><span>Энергия</span><span class="r">Время</span><span></span><span></span>
+          </div>
+          <ol class="setlist" id="setlist"></ol>
+          <details class="bench" id="bench">
+            <summary>Вне сета <span id="bench-count"></span></summary>
+            <ul id="bench-list"></ul>
+          </details>
+          <ul class="scan-errors" id="scan-errors"></ul>
+        </div>
+
+        <aside class="side">
+          <dl class="stats" id="stats"></dl>
+          <figure class="chart">
+            <svg id="chart" viewBox="0 0 300 120" preserveAspectRatio="none"></svg>
+            <figcaption><span class="swatch bars"></span>энергия треков <span class="swatch line"></span><span id="curve-name"></span></figcaption>
+          </figure>
+          <button class="primary wide" id="build">Собрать сет</button>
+          <button class="ghost wide" id="unlock-all" hidden>Снять все замки</button>
+          <p class="hint">Перетаскивайте треки мышью. Замок оставляет трек на месте при пересборке. Кривая и приоритеты — во вкладке «Инструменты».</p>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ─────────────────────────── Сведение ─────────────────────────── -->
+    <section class="view mix" id="view-mix" hidden>
+      <header class="mix-head">
+        <div>
+          <h1>Метки и переходы</h1>
+          <p>Точки на сильных долях по бит-сетке каждого трека: где запускать следующий трек, где менять бас и когда убрать предыдущий. Время — от начала файла, такты — от первой сильной доли.</p>
+        </div>
+        <div class="mix-actions">
+          <button class="ghost" id="mix-copy">Копировать текст</button>
+          <button class="primary" id="mix-save">Сохранить лист меток</button>
+        </div>
+      </header>
+
+      <details class="panel how">
+        <summary>Как перенести метки в Rekordbox</summary>
+        <ol>
+          <li><b>Автоматически.</b> На вкладке «Экспорт» включите «Метки сведения» и импортируйте Rekordbox XML: сетка и метки A–E придут вместе с треками. Метки уже проанализированных треков Rekordbox при импорте может не заменить — тогда вручную.</li>
+          <li><b>Вручную.</b> Включите <kbd>Quantize</kbd>. Откройте трек, остановите воспроизведение в указанное время (зум волны и счётчик времени в формате мин:сек.мс) и нажмите свободную кнопку Hot Cue — метка защёлкнется на ближайшую долю.</li>
+          <li><b>Проверьте сетку.</b> Первая доля Rekordbox должна совпасть с «первой долей» в таблице ниже. Если Rekordbox начал такт с другой доли, сдвиньте его сетку — иначе номера тактов разойдутся, хотя время меток останется верным.</li>
+        </ol>
+      </details>
+
+      <p class="label">Переходы</p>
+      <ol class="mix-list" id="mix-transitions"></ol>
+
+      <p class="label">Метки треков</p>
+      <div class="cue-table" id="mix-tracks"></div>
+    </section>
+
+    <!-- ────────────────────────── Инструменты ───────────────────────── -->
+    <section class="view tools" id="view-tools" hidden>
+      <article class="panel span-2">
+        <header><h2>Кривая энергии</h2><p>Какой формы будет вечер. Сборка подстраивает под кривую и энергию треков, и темп.</p></header>
+        <div class="curves" id="curves"></div>
+      </article>
+
+      <article class="panel">
+        <header><h2>Приоритеты сборки</h2><p>Что важнее, когда всё сразу не получается.</p></header>
+        <div class="sliders">
+          <label><span>Гармония ключей</span><input type="range" min="0" max="100" step="5" data-weight="harmony"><output></output></label>
+          <label><span>Плавность темпа</span><input type="range" min="0" max="100" step="5" data-weight="tempo"><output></output></label>
+          <label><span>Следовать кривой</span><input type="range" min="0" max="100" step="5" data-weight="energy"><output></output></label>
+        </div>
+        <button class="ghost" id="weights-reset">По умолчанию</button>
+      </article>
+
+      <article class="panel">
+        <header><h2>Сет по времени</h2><p>Выберет из всей папки лучшие треки, чтобы уложиться в слот.</p></header>
+        <div class="fields">
+          <label class="field"><span>Длина слота, мин</span><input type="number" id="slot-minutes" min="10" max="600" step="5" value="60"></label>
+          <label class="field"><span>Перекрытие при сведении, с</span><input type="number" id="overlap" min="0" max="120" step="5" value="30"></label>
+        </div>
+        <button class="primary" id="build-slot">Собрать под слот</button>
+        <p class="result" id="slot-result"></p>
+      </article>
+
+      <article class="panel span-2 next">
+        <header><h2>Что поставить дальше</h2><p>Лучшие продолжения для выбранного трека и где они на колесе Камелота.</p></header>
+        <div class="next-grid">
+          <div>
+            <div class="next-controls">
+              <select id="next-from" aria-label="Текущий трек"></select>
+              <div class="segmented" id="next-direction" role="radiogroup" aria-label="Энергия">
+                <button data-dir="-1" role="radio">Спокойнее</button>
+                <button data-dir="0" role="radio">Так же</button>
+                <button data-dir="1" role="radio">Мощнее</button>
+              </div>
+            </div>
+            <ol class="suggestions" id="suggestions"></ol>
+          </div>
+          <figure class="wheel-box">
+            <svg id="wheel" viewBox="0 0 240 240"></svg>
+            <figcaption>Внешнее кольцо — мажор (B), внутреннее — минор (A). Цифра в секторе — сколько треков папки в этом ключе. Обведены ключи, которые сводятся с выбранным.</figcaption>
+          </figure>
+        </div>
+      </article>
+
+      <article class="panel">
+        <header><h2>Проверка переходов</h2><p>Места, где сведение потребует внимания.</p></header>
+        <ol class="checks" id="checks"></ol>
+      </article>
+
+      <article class="panel">
+        <header><h2>Октава темпа</h2><p>Анализатор не всегда отличает 70 от 140 BPM. Укажите, в каком диапазоне живёт ваш жанр.</p></header>
+        <div class="choices" id="bpm-floor">
+          <label><input type="radio" name="floor" value="70"><span><b>70–140</b><small>хип-хоп, трэп, R&amp;B</small></span></label>
+          <label><input type="radio" name="floor" value="88"><span><b>88–176</b><small>house, dubstep, riddim, DnB</small></span></label>
+          <label><input type="radio" name="floor" value="100"><span><b>100–200</b><small>hardstyle, hardcore, footwork</small></span></label>
+        </div>
+      </article>
+    </section>
+
+    <!-- ──────────────────────────── Экспорт ─────────────────────────── -->
+    <section class="view export" id="view-export" hidden>
+      <article class="panel">
+        <header><h2>Записать сет в файлы</h2><p>Порядок окажется в самих файлах — Rekordbox, Serato и любой плеер увидят его без этой программы.</p></header>
+        <label class="field"><span>Название сета</span><input id="ex-name" spellcheck="false"></label>
+        <div class="checks-list">
+          <label class="check"><input type="checkbox" id="ex-rename" checked><span><b>Пронумеровать файлы</b><small>«07 - Artist - Title.flac». Треки вне сета теряют старые номера.</small></span></label>
+          <label class="check"><input type="checkbox" id="ex-tags" checked><span><b>Номер в теги</b><small>Название «07 Title», альбом — название сета, номер трека. По этим полям сортирует Rekordbox. Только FLAC и MP3.</small></span></label>
+          <label class="check"><input type="checkbox" id="ex-bpmkey"><span><b>BPM и ключ в теги</b><small>Для программ без собственного анализа.</small></span></label>
+          <label class="check"><input type="checkbox" id="ex-m3u" checked><span><b>Плейлист M3U8</b><small>Откроется в любом плеере.</small></span></label>
+          <label class="check"><input type="checkbox" id="ex-cues" checked><span><b>Метки сведения</b><small>Лист меток «… — метки.txt» в папке сета, а в Rekordbox XML — бит-сетка и метки A–E (hot cue и memory cue).</small></span></label>
+          <label class="check"><input type="checkbox" id="ex-xml" checked><span><b>Rekordbox XML</b><small>Плейлист с порядком, BPM и ключом. Подключение: Preferences → Advanced → Database → rekordbox xml, затем в дереве rekordbox xml → Playlists → Import Playlist.</small></span></label>
+        </div>
+        <button class="primary" id="ex-run">Записать</button>
+      </article>
+
+      <article class="panel">
+        <header><h2>Журнал</h2><p>Что было сделано при последней записи.</p></header>
+        <ol class="log" id="ex-log"><li class="muted">Пока пусто.</li></ol>
+      </article>
+
+      <article class="panel">
+        <header><h2>Откатить</h2><p>Перед первой записью программа сохраняет исходные имена и теги в файл .prodj-backup.json в папке сета.</p></header>
+        <button class="ghost" id="ex-restore">Вернуть файлы как было</button>
+      </article>
+    </section>
+  </main>
+
+  <footer class="deck" id="deck">
+    <button class="icon play-big" id="deck-play" aria-label="Играть" disabled></button>
+    <div class="now">
+      <b id="deck-title">Ничего не играет</b>
+      <span id="deck-sub">Двойной щелчок по треку — прослушать</span>
+    </div>
+    <div class="scrub" id="deck-scrub"><div id="deck-fill"></div></div>
+    <span class="clock" id="deck-clock">0:00</span>
+    <span class="keys"><kbd>Пробел</kbd> пауза <kbd>↑</kbd><kbd>↓</kbd> выбор <kbd>L</kbd> замок <kbd>Del</kbd> убрать</span>
+  </footer>
+
+  <audio id="audio-a" preload="none"></audio>
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
