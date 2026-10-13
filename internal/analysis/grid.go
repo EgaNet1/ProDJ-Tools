@@ -74,6 +74,7 @@ func findGrid(x []float32, f frameSeries, rawBPM, duration float64) Grid {
 	curve := attackCurve(x)
 	frameSec := float64(attackHop) / float64(f.rate)
 	bpm = bestTempo(curve, frameSec, bpm)
+	bpm = checkRelatives(curve, frameSec, bpm)
 	period := 60 / bpm
 	phase := attackPhase(x, f, period)
 
@@ -160,6 +161,38 @@ func bestTempo(curve []float64, frameSec, estimate float64) float64 {
 		return whole
 	}
 	return math.Round(best*10000) / 10000
+}
+
+// checkRelatives guards against the rough estimate locking onto a rhythm
+// related to the beat by 3:4 or 2:3 rather than by an octave. House with
+// hats and bass on every off-beat repeats every 1.5 and 3 beats as strongly
+// as every beat, and so can pass for two thirds of its tempo. Folding tells
+// them apart: at the true tempo every kick lands on the same point of the
+// beat, at a related one the kicks spread over three or four points. A
+// related tempo replaces the estimate only when its attacks pile up clearly
+// more sharply.
+func checkRelatives(curve []float64, frameSec, bpm float64) float64 {
+	bins := make([]float64, foldBins)
+	best, top := bpm, foldScore(curve, frameSec, bpm, bins)
+	for _, ratio := range []float64{3.0 / 4, 4.0 / 3, 2.0 / 3, 3.0 / 2} {
+		c := bpm * ratio
+		for c < gridFloor {
+			c *= 2
+		}
+		for c >= 2*gridFloor {
+			c /= 2
+		}
+		// The ratio carries the estimate's small error, so look around it.
+		for b := c - 0.1; b <= c+0.1; b += 0.0025 {
+			if s := foldScore(curve, frameSec, b, bins); s > top*relativeMargin {
+				best, top = b, s/relativeMargin
+			}
+		}
+	}
+	if best == bpm {
+		return bpm
+	}
+	return bestTempo(curve, frameSec, best)
 }
 
 // attackPhase folds the high-passed signal onto one beat sample by sample —
@@ -400,4 +433,7 @@ const (
 	offBeatMargin = 1.5
 	// attackTrace: how far back the start of an attack is looked for.
 	attackTrace = 0.005
+	// relativeMargin: how much more sharply a 3:4 or 2:3 related tempo must
+	// fold the attacks to replace the estimate.
+	relativeMargin = 1.15
 )

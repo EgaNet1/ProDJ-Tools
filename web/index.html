@@ -107,6 +107,25 @@
         </div>
       </header>
 
+      <div class="mix-bar">
+        <div class="segmented" id="mix-mode" role="tablist">
+          <button role="tab" data-mode="transitions" data-i18n="mix.view.transitions"></button>
+          <button role="tab" data-mode="cues" data-i18n="mix.view.cues"></button>
+        </div>
+        <p class="mix-how-short" id="mix-how-short"></p>
+      </div>
+
+      <ol class="mix-list" id="mix-transitions"></ol>
+
+      <div class="mix-cues" id="mix-cues" hidden>
+        <section class="panel cue-guide">
+          <h2 data-i18n="mix.legend"></h2>
+          <ul class="cue-legend" id="cue-legend"></ul>
+          <ul class="kind-legend" id="kind-legend"></ul>
+        </section>
+        <div class="cue-cards" id="mix-tracks"></div>
+      </div>
+
       <details class="panel how">
         <summary data-i18n="mix.how.title"></summary>
         <ol>
@@ -115,12 +134,6 @@
           <li data-i18n-html="mix.how.grid"></li>
         </ol>
       </details>
-
-      <p class="label" data-i18n="mix.transitions"></p>
-      <ol class="mix-list" id="mix-transitions"></ol>
-
-      <p class="label" data-i18n="mix.cues"></p>
-      <div class="cue-table" id="mix-tracks"></div>
     </section>
 
     <!-- ────────────────────────── Tools ───────────────────────── -->

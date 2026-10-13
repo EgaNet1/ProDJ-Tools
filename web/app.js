@@ -101,6 +101,7 @@ const state = {
   direction: 0,       // for "what next": -1 calmer, 0 same, 1 stronger
   mix: null,          // cue points and transition plans for the order
   mixKey: '',         // what the mix plan was computed for
+  mixMode: 'transitions', // the Mixing tab shows 'transitions' or 'cues'
   mixGen: 0,          // bumped whenever tracks are reloaded
   log: [],            // lines of the last export or restore
 }
@@ -711,113 +712,239 @@ async function loadMix() {
   return state.mix
 }
 
+// Cue roles in button order (A–F, see mixplan.Cues) and their colours, for
+// the legend; section kinds as the analysis names them.
+const CUES = [
+  ['mixIn', 'MIX IN', [40, 226, 20]],
+  ['drop', 'DROP', [230, 40, 40]],
+  ['earlyOut', 'EARLY OUT', [16, 196, 230]],
+  ['break', 'BREAK', [48, 90, 255]],
+  ['drop2', 'DROP 2', [255, 140, 0]],
+  ['mixOut', 'MIX OUT', [224, 200, 0]],
+]
+const KINDS = ['intro', 'drop', 'verse', 'break', 'outro']
+
+// The way every transition is mixed, as chosen on its card.
+const mixWays = new Map() // "idA>idB" → 'outro' | 'early'
+
+function wayOf(i, ways) {
+  const chosen = mixWays.get(`${state.order[i]}>${state.order[i + 1]}`)
+  if (chosen && ways?.[chosen]) return chosen
+  return ways?.outro ? 'outro' : ways?.early ? 'early' : null
+}
+
+const planOf = (mix, i) => mix.transitions[i]?.[wayOf(i, mix.transitions[i])] ?? null
+
+// foldRatio brings a tempo ratio into [0.75, 1.5): tracks read in different
+// octaves still play at the closest real speed.
+function foldRatio(r) {
+  while (r < 0.75) r *= 2
+  while (r >= 1.5) r /= 2
+  return r
+}
+
 async function renderMix() {
-  const list = $('#mix-transitions'), table = $('#mix-tracks')
+  const mode = state.mixMode
+  $$('#mix-mode button').forEach(b => b.setAttribute('aria-selected', b.dataset.mode === mode))
+  $('#mix-transitions').hidden = mode !== 'transitions'
+  $('#mix-cues').hidden = mode !== 'cues'
+  $('#mix-how-short').textContent = t(`mix.view.${mode}.about`)
+  const list = $('#mix-transitions'), cards = $('#mix-tracks')
   if (!state.order.length) {
     list.innerHTML = `<li class="hint">${esc(t('mix.empty'))}</li>`
-    table.innerHTML = ''
+    cards.innerHTML = ''
     return
   }
   const mix = await loadMix()
   const info = new Map(mix.tracks.map(m => [m.id, m]))
-  list.innerHTML = mix.transitions.map((p, i) => transitionCard(p, i, info)).join('') ||
-    `<li class="hint">${esc(t('mix.one'))}</li>`
-  table.innerHTML = cueHead() + state.order.map((id, i) => cueRow(track(id), info.get(id), i)).join('')
+  if (mode === 'transitions') {
+    list.innerHTML = mix.transitions.map((ways, i) => transitionCard(ways, i, info)).join('') ||
+      `<li class="hint">${esc(t('mix.one'))}</li>`
+  } else {
+    renderLegend()
+    cards.innerHTML = state.order.map((id, i) => cueCard(track(id), info.get(id), i)).join('')
+  }
   markPlaying()
 }
 
-const cueChip = c => c ? `<i class="cue" style="background:rgb(${c.color.join(',')})">${c.slot}</i>` : ''
+const rgb = color => `rgb(${color.join(',')})`
+const cueChip = c => c ? `<i class="cue" style="--c:${rgb(c.color)}">${c.slot}</i>` : ''
 
-function transitionCard(p, i, info) {
+// ── Transitions ──
+
+function transitionCard(ways, i, info) {
   const a = track(state.order[i]), b = track(state.order[i + 1]), w = posWidth()
-  const head = `<span class="pair">${pad(i + 1, w)} ${arrow()} ${pad(i + 2, w)}</span>
-    <span class="titles">${esc(a.title)}<i>${arrow()}</i>${esc(b.title)}</span>`
-  if (!p) {
-    return `<li class="mix-card none"><header>${head}</header>
-      <p class="note">${esc(t('mix.no_grid'))}</p></li>`
-  }
+  const way = wayOf(i, ways), p = way ? ways[way] : null
+  const head = `<header class="mix-card-head">
+      <span class="pair">${pad(i + 1, w)} ${arrow()} ${pad(i + 2, w)}</span>
+      <h3 class="titles"><span>${esc(a.title)}</span><i>${arrow()}</i><span>${esc(b.title)}</span></h3>
+      ${p ? wayToggle(i, ways, way, a) : ''}
+      ${p ? `<button class="listen" data-mix="${i}"><span class="ico">${icon.play}</span><span class="txt">${esc(t('mix.listen'))}</span></button>` : ''}
+    </header>`
+  if (!p) return `<li class="mix-card none">${head}<p class="note">${esc(t('mix.no_grid'))}</p></li>`
+
   const ma = info.get(a.id), mb = info.get(b.id)
-  const mixIn = mb.cues.find(c => c.slot === 'A')
+  const judged = state.transitions[i] // tempo and key, as the set tab rates them
+  const facts = [
+    `<span class="fact">${esc(t('mix.blend', p.bars))}</span>`,
+    `<span class="fact mono">${esc(t('mix.tempo', b.title, signed(p.pitch), ma.bpm.toFixed(2)))}</span>`,
+    judged ? `<span class="fact ${judged.grade}"><i class="dot"></i>${esc(judged.key)}</span>` : '',
+  ].join('')
   return `<li class="mix-card" data-card="${i}">
-    <header>${head}
-      <span class="meta">${esc(t('mix.meta', p.bars, b.title, signed(p.pitch), ma.bpm.toFixed(2)))}</span>
-      <button data-mix="${i}">${esc(t('mix.listen'))}</button>
-    </header>
-    ${lanes(p, ma, mb)}
-    <ol class="steps">
-      <li><span class="n">1</span><time>${clock(p.startA.time)}</time><span class="at-bar">${esc(t('mix.bar', p.startA.bar))}</span>
-        <span>${t('mix.step1', esc(a.title), esc(b.title), `${cueChip(mixIn)}MIX IN`, `<span class="clock">${clock(p.cueB.time)}</span>`)}</span></li>
-      <li><span class="n">2</span><time>${clock(p.swapA.time)}</time><span class="at-bar">${esc(t('mix.bar', p.swapA.bar))}</span>
-        <span>${t('mix.step2', esc(b.title), `<span class="clock">${clock(p.swapB.time)}</span>`, p.swapB.bar)}</span></li>
-      <li><span class="n">3</span><time>${clock(p.endA.time)}</time><span class="at-bar">${esc(t('mix.bar', p.endA.bar))}</span>
-        <span>${t('mix.step3', esc(a.title))}</span></li>
-    </ol>
+    ${head}
+    <div class="facts">${facts}</div>
+    <p class="way-about">${esc(t(`mix.way.${way}.about`, a.title, b.title))}</p>
+    ${timeline(p, ma, mb, a, b)}
+    ${steps(p, a, b, mb)}
     ${p.note ? `<p class="note">${esc(p.note)}</p>` : ''}
   </li>`
 }
 
+function wayToggle(i, ways, way, a) {
+  const option = w => {
+    const off = !ways[w]
+    return `<button role="radio" data-way="${w}" data-i="${i}" aria-checked="${w === way}"${off ? ` aria-disabled="true" title="${esc(t(`mix.way.${w}.none`, a.title))}"` : ''}>${esc(t(`mix.way.${w}`))}</button>`
+  }
+  return `<div class="segmented way" role="radiogroup" aria-label="${esc(t('mix.way'))}">${option('outro')}${option('early')}</div>`
+}
+
+function steps(p, a, b, mb) {
+  const time = s => `<b class="clock">${clock(s)}</b>`
+  const fromCue = p.fromB && mb.cues.find(c => c.slot === p.fromB[0])
+  const from = fromCue
+    ? t('mix.from_cue', `${cueChip(fromCue)}${esc(fromCue.name)}`, time(p.cueB.time))
+    : t('mix.from_bar', time(p.cueB.time), p.cueB.bar)
+  // A gone right at the swap: an early mix cuts it before its drop comes
+  // back; via the outro, its music simply ends there.
+  const cut = p.endA.bar <= p.swapA.bar ? (p.kind === 'early' ? 'mix.step3.cut' : 'mix.step3.ends') : 'mix.step3.text'
+  const step = (n, kind, m, title, text) => `<li class="step ${kind}">
+      <span class="n">${n}</span>
+      <div class="when"><time>${clock(m.time)}</time><span>${esc(t('mix.bar', m.bar))}</span></div>
+      <b class="what">${title}</b>
+      <p>${text}</p>
+    </li>`
+  return `<ol class="steps">
+    ${step(1, 'start', p.startA, esc(t('mix.step1.title', b.title)),
+      `${t('mix.step1.text', esc(a.title), from)} ${esc(t('mix.step1.hint'))}`)}
+    ${step(2, 'swap', p.swapA, esc(t('mix.step2.title')),
+      t('mix.step2.text', esc(b.title), esc(a.title), time(p.swapB.time), p.swapB.bar))}
+    ${step(3, 'end', p.endA, esc(t('mix.step3.title', a.title)),
+      esc(t(cut, a.title)))}
+  </ol>`
+}
+
 // kindAt is the section a bar (0-based) belongs to.
 function kindAt(info, bar) {
-  if (bar >= info.lastBar) return 'none'
+  if (bar < 0 || bar >= info.lastBar) return 'none'
   let kind = 'none'
   for (const s of info.sections ?? []) if (s.bar <= bar) kind = s.kind
   return kind
 }
 
-const playheadLine = '<line class="playhead" x1="-10" x2="-10" y1="0" y2="26"/>'
+// spans groups the bars [from, to) of a lane into runs of one section kind;
+// own maps a bar of the lane to the track's own bar (1-based).
+function spans(info, own, from, to) {
+  const out = []
+  for (let bar = from; bar < to; bar++) {
+    const o = own(bar)
+    const kind = o >= 1 && o <= info.bars.length ? kindAt(info, o - 1) : null
+    const last = out[out.length - 1]
+    if (last && last.kind === kind) last.to = bar + 1
+    else out.push({ from: bar, to: bar + 1, kind })
+  }
+  return out.filter(s => s.kind && s.kind !== 'none')
+}
 
-// lanes draws both tracks bar by bar around the transition, aligned the way
-// they play together, with the three moments of the plan marked.
-function lanes(p, ma, mb) {
-  const from = Math.max(1, p.startA.bar - 8), to = p.endA.bar + 4, n = to - from
-  const x = bar => ((bar - from) / n) * 1000
-  const lane = (info, ownBar) => {
+// timeline draws both tracks bar by bar around the transition, aligned the
+// way they play together: the sections of each, the stretch where both play,
+// the three moments of the plan and a ruler of A's bars.
+function timeline(p, ma, mb, a, b) {
+  const from = Math.max(1, p.startA.bar - 4), to = p.endA.bar + 4, n = to - from
+  const x = bar => ((bar - from) / n) * 100
+  const lane = (info, own) => {
     let rects = ''
     for (let bar = from; bar < to; bar++) {
-      const own = ownBar(bar)
-      if (own === null || own < 1 || own > info.bars.length) continue
-      const h = 3 + (info.bars[own - 1] / 255) * 23
-      rects += `<rect class="kind-${kindAt(info, own - 1)}" x="${x(bar).toFixed(1)}" y="${(26 - h).toFixed(1)}" width="${(1000 / n - 1.5).toFixed(1)}" height="${h.toFixed(1)}"/>`
+      const o = own(bar)
+      if (o < 1 || o > info.bars.length) continue
+      const h = 5 + (info.bars[o - 1] / 255) * 25
+      rects += `<rect class="kind-${kindAt(info, o - 1)}" x="${(x(bar) * 10).toFixed(1)}" y="${(30 - h).toFixed(1)}" width="${(1000 / n - 2).toFixed(1)}" height="${h.toFixed(1)}"/>`
     }
-    return rects
+    const labels = spans(info, own, from, to).filter(s => s.to - s.from >= Math.max(3, n * 0.08))
+      .map(s => `<span class="sec kind-${s.kind}" style="left:${x(s.from)}%;width:${x(s.to) - x(s.from)}%">${esc(t('section.' + s.kind))}</span>`).join('')
+    return `<div class="tl-lane"><svg viewBox="0 0 1000 30" preserveAspectRatio="none" aria-hidden="true">${rects}</svg>${labels}</div>`
   }
-  const marks = [['start', p.startA.bar], ['swap', p.swapA.bar], ['end', p.endA.bar]]
-  const lines = marks.map(([k, bar]) => `<line class="mark-${k}" x1="${x(bar)}" x2="${x(bar)}" y1="0" y2="26"/>`).join('')
-  const svg = content => `<svg viewBox="0 0 1000 26" preserveAspectRatio="none" aria-hidden="true">${content}${lines}${playheadLine}</svg>`
-  return `<div class="lanes" data-from="${from}" data-to="${to}">
-    <span>A</span>${svg(lane(ma, bar => bar))}
-    <span>B</span>${svg(lane(mb, bar => bar >= p.startA.bar ? p.cueB.bar + bar - p.startA.bar : null))}
-    <div class="marks">${marks.map(([, bar]) => `<span style="left:${x(bar) / 10}%">${esc(t('mix.bar_short', bar))}</span>`).join('')}</div>
+  const ownB = bar => p.cueB.bar + bar - p.startA.bar
+  let ruler = ''
+  for (let bar = from; bar <= to; bar++) {
+    if ((bar - 1) % 4 !== 0) continue
+    const major = (bar - 1) % 8 === 0
+    ruler += `<span class="tick${major ? ' major' : ''}" style="left:${x(bar)}%">${major ? bar : ''}</span>`
+  }
+  const marker = (kind, n, bar) => `<div class="marker ${kind}" style="left:${x(bar)}%"><span>${n}</span></div>`
+  return `<div class="timeline" data-from="${from}" data-to="${to}">
+    <div class="tl-names">
+      <span><b>A</b>${esc(a.title)}</span>
+      <span><b>B</b>${esc(b.title)}</span>
+      <span class="tl-unit">${esc(t('mix.ruler'))}</span>
+    </div>
+    <div class="tl-body">
+      <div class="zone blend" style="left:${x(p.startA.bar)}%;width:${x(p.swapA.bar) - x(p.startA.bar)}%"></div>
+      <div class="zone fade" style="left:${x(p.swapA.bar)}%;width:${x(p.endA.bar) - x(p.swapA.bar)}%"></div>
+      ${lane(ma, bar => bar)}
+      ${lane(mb, bar => (bar >= p.startA.bar ? ownB(bar) : 0))}
+      <div class="tl-ruler">${ruler}</div>
+      ${marker('start', 1, p.startA.bar)}${marker('swap', 2, p.swapA.bar)}${p.endA.bar > p.swapA.bar ? marker('end', 3, p.endA.bar) : ''}
+      <div class="playhead" hidden></div>
+    </div>
   </div>`
 }
 
-const cueHead = () => `<div class="cue-row head"><span>#</span><span>${esc(t('cue.track'))}</span><span>BPM</span><span>${esc(t('cue.precision'))}</span><span>${esc(t('cue.structure'))}</span></div>`
+// ── Track cues ──
 
-function cueRow(tr, m, i) {
-  const [precClass, precText] = !m.jitter ? ['', '—']
-    : [m.jitter <= 2 ? 'good' : m.jitter <= 5 ? 'ok' : 'rough', t('cue.ms', m.jitter.toFixed(1))]
+function renderLegend() {
+  $('#cue-legend').innerHTML = CUES.map(([role, name, color], k) => `<li>
+      <i class="cue" style="--c:${rgb(color)}">${String.fromCharCode(65 + k)}</i>
+      <div><b>${name}</b><span>${esc(t('cue.about.' + role))}</span></div>
+    </li>`).join('')
+  $('#kind-legend').innerHTML = KINDS.map(kind =>
+    `<li><i class="swatch kind-${kind}"></i>${esc(t('section.' + kind))}</li>`).join('')
+}
+
+function cueCard(tr, m, i) {
+  const precision = m.jitter
+    ? `<span class="badge ${m.jitter <= 2 ? 'good' : m.jitter <= 5 ? 'ok' : 'rough'}" title="${esc(t('cue.precision_title'))}">${esc(t('cue.grid', m.jitter.toFixed(1)))}</span>`
+    : ''
+  const grid = m.bpm
+    ? `<span class="badge">${m.bpm.toFixed(2)} BPM</span>${precision}<span class="badge">${esc(t('cue.first_beat', clock(m.firstBeat)))}</span>`
+    : `<span class="badge rough">${esc(t('cue.no_grid'))}</span>`
+  const warn = m.bpm && !m.downbeatSure ? `<p class="note">${esc(t('cue.downbeat_unsure'))}</p>` : ''
+
   const n = Math.max(1, m.bars.length)
-  const strip = m.bars.map((v, b) => {
-    const h = 3 + (v / 255) * 19
-    return `<rect class="kind-${kindAt(m, b)}" x="${((b / n) * 1000).toFixed(1)}" y="${(22 - h).toFixed(1)}" width="${((1000 / n) * 0.8).toFixed(2)}" height="${h.toFixed(1)}"/>`
+  const x = bar => (bar / n) * 100
+  const bars = m.bars.map((v, b) => {
+    const h = 5 + (v / 255) * 27
+    return `<rect class="kind-${kindAt(m, b)}" x="${(x(b) * 10).toFixed(2)}" y="${(32 - h).toFixed(1)}" width="${((1000 / n) * 0.82).toFixed(2)}" height="${h.toFixed(1)}"/>`
   }).join('')
-  const cueLines = m.cues.map(c => {
-    const x = (((c.bar - 1) / n) * 1000).toFixed(1)
-    return `<line x1="${x}" x2="${x}" y1="0" y2="22" style="stroke:rgb(${c.color.join(',')})"/>`
-  }).join('')
-  let grid = t('cue.no_grid')
-  if (m.bpm) grid = t('cue.first_beat', clock(m.firstBeat)) + (m.downbeatSure ? '' : ` · ${t('cue.downbeat_unsure')}`)
-  return `<div class="cue-row">
-    <span class="pos">${pad(i + 1, posWidth())}</span>
-    <div class="name"><b>${esc(tr.title)}</b><span>${esc(tr.artist)}</span>
-      <span class="grid-info${m.bpm && !m.downbeatSure ? ' warn' : ''}">${esc(grid)}</span></div>
-    <span class="bpm">${m.bpm ? m.bpm.toFixed(2) : '—'}</span>
-    <span class="prec ${precClass}" title="${esc(t('cue.precision_title'))}">${esc(precText)}</span>
-    <div>
-      <svg viewBox="0 0 1000 22" preserveAspectRatio="none" aria-hidden="true">${strip}${cueLines}</svg>
-      <div class="cue-list">${m.cues.map(c => `<span>${cueChip(c)}${c.name} <b>${clock(c.time)}</b> · ${esc(t('mix.bar_short', c.bar))}</span>`).join('')}</div>
+  const labels = spans(m, bar => bar + 1, 0, n).filter(s => s.to - s.from >= n * 0.06)
+    .map(s => `<span class="sec kind-${s.kind}" style="left:${x(s.from)}%;width:${x(s.to) - x(s.from)}%">${esc(t('section.' + s.kind))}</span>`).join('')
+  const flags = m.cues.map(c => `<span class="flag" style="left:${x(c.bar - 1)}%;--c:${rgb(c.color)}" title="${esc(`${c.slot} · ${c.name} — ${t('cue.about.' + c.role)}`)}">${c.slot}</span>`).join('')
+  const chips = m.cues.map(c => `<li style="--c:${rgb(c.color)}" title="${esc(t('cue.about.' + c.role))}">
+      <i class="cue">${c.slot}</i><b>${c.name}</b><time>${clock(c.time)}</time><span>${esc(t('mix.bar', c.bar))}</span>
+    </li>`).join('')
+
+  return `<article class="cue-card">
+    <header>
+      <span class="pos">${pad(i + 1, posWidth())}</span>
+      <div class="name"><b>${esc(tr.title)}</b><span>${esc(tr.artist)}</span></div>
+      <div class="badges">${grid}</div>
+    </header>
+    ${warn}
+    <div class="cue-strip">
+      <div class="flags">${flags}</div>
+      <div class="strip"><svg viewBox="0 0 1000 32" preserveAspectRatio="none" aria-hidden="true">${bars}</svg>${labels}</div>
     </div>
-  </div>`
+    <ul class="cue-chips">${chips}</ul>
+  </article>`
 }
 
 // ── Player ────────────────────────────────────────────────────────────
@@ -888,13 +1015,13 @@ function channel(buffer, rate) {
 // playTransition plays transition i exactly as planned: A from four bars
 // before B comes in; B from its MIX IN cue, on A's bar and at A's tempo,
 // without bass; at the swap A's bass goes out and B's comes in; A fades out
-// by the end of the blend. Tempo matching changes B's pitch slightly, as on
-// a turntable.
+// by the end of the blend (or at once, when the plan says so). Tempo
+// matching changes B's pitch slightly, as on a turntable.
 async function playTransition(i) {
   if (player.join === i) return stopAudio()
   stopAudio()
   const mix = await loadMix()
-  const p = mix.transitions[i]
+  const p = planOf(mix, i)
   if (!p) return toast(t('player.no_grid'), 'error')
   const ma = mix.tracks[i], mb = mix.tracks[i + 1]
 
@@ -911,7 +1038,7 @@ async function playTransition(i) {
   const from = Math.max(0, p.startA.time - 4 * bar)
   const t0 = audioContext.currentTime + 0.1
   const at = timeInA => t0 + timeInA - from
-  const a = channel(bufferA, 1), b = channel(bufferB, ma.bpm / mb.bpm)
+  const a = channel(bufferA, 1), b = channel(bufferB, foldRatio(ma.bpm / mb.bpm))
 
   b.volume.setValueAtTime(0, t0)
   b.volume.setValueAtTime(0, at(p.startA.time))
@@ -939,10 +1066,12 @@ async function playTransition(i) {
     const barInA = (timeInA - ma.firstBeat) / bar + 1
     $('#deck-fill').style.width = `${Math.min(100, Math.max(0, ((audioContext.currentTime - t0) / (end - t0)) * 100))}%`
     $('#deck-clock').textContent = `${clock(Math.max(0, timeInA))} · ${t('mix.bar', Math.max(1, Math.floor(barInA)))}`
-    const lanesEl = $(`.mix-card[data-card="${i}"] .lanes`)
-    if (lanesEl) {
-      const x = ((barInA - lanesEl.dataset.from) / (lanesEl.dataset.to - lanesEl.dataset.from)) * 1000
-      lanesEl.querySelectorAll('.playhead').forEach(l => { l.setAttribute('x1', x); l.setAttribute('x2', x) })
+    const line = $(`.mix-card[data-card="${i}"] .timeline`)
+    if (line) {
+      const x = ((barInA - line.dataset.from) / (line.dataset.to - line.dataset.from)) * 100
+      const head = line.querySelector('.playhead')
+      head.hidden = x < 0 || x > 100
+      head.style.left = `${x}%`
     }
     player.frame = requestAnimationFrame(tick)
   }
@@ -955,7 +1084,7 @@ function stopAudio() {
     try { node.stop() } catch { /* already stopped */ }
   }
   player.nodes = []
-  $$('.playhead').forEach(l => { l.setAttribute('x1', -10); l.setAttribute('x2', -10) })
+  $$('.playhead').forEach(head => { head.hidden = true })
   deck.pause()
   deck.removeAttribute('src')
   deck.load() // drops the connection, so the file is no longer held open
@@ -1003,7 +1132,8 @@ function markPlaying() {
   $$('[data-mix]').forEach(button => {
     const on = Number(button.dataset.mix) === player.join
     button.classList.toggle('on', on)
-    button.textContent = t(on ? 'mix.stop' : 'mix.listen')
+    button.querySelector('.ico').innerHTML = on ? icon.pause : icon.play
+    button.querySelector('.txt').textContent = t(on ? 'mix.stop' : 'mix.listen')
   })
 }
 
@@ -1198,9 +1328,22 @@ function bindEvents() {
   })
 
   // Mix plan
+  $('#mix-mode').addEventListener('click', e => {
+    const b = e.target.closest('[data-mode]')
+    if (!b || b.dataset.mode === state.mixMode) return
+    state.mixMode = b.dataset.mode
+    renderMix().catch(showError)
+  })
   $('#mix-transitions').addEventListener('click', e => {
-    const button = e.target.closest('[data-mix]')
-    if (button) playTransition(Number(button.dataset.mix)).catch(showError)
+    const listen = e.target.closest('[data-mix]')
+    if (listen) return playTransition(Number(listen.dataset.mix)).catch(showError)
+    const way = e.target.closest('[data-way]')
+    if (!way) return
+    if (way.getAttribute('aria-disabled') === 'true') return toast(way.title)
+    const i = Number(way.dataset.i)
+    mixWays.set(`${state.order[i]}>${state.order[i + 1]}`, way.dataset.way)
+    if (player.join === i) stopAudio()
+    renderMix().catch(showError)
   })
   $('#mix-copy').addEventListener('click', e => busy(e.currentTarget, async () => {
     const mix = await loadMix()

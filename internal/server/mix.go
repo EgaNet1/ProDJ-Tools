@@ -10,8 +10,8 @@ import (
 	"prodjtools/internal/mixplan"
 )
 
-// mixTrack is a track's grid, structure and cue points, as the "Сведение"
-// tab shows them.
+// mixTrack is a track's grid, structure and cue points, as the Mixing tab
+// shows them, in the meter the DJ reads the track in.
 type mixTrack struct {
 	ID           string             `json:"id"`
 	BPM          float64            `json:"bpm"`
@@ -24,16 +24,24 @@ type mixTrack struct {
 	LastBar      int                `json:"lastBar"`
 }
 
+// mixWays are the ways of mixing one track into the next; nil where a way
+// is impossible.
+type mixWays struct {
+	Outro *mixplan.Transition `json:"outro"`
+	Early *mixplan.Transition `json:"early"`
+}
+
 type mixView struct {
-	Tracks      []mixTrack            `json:"tracks"`
-	Transitions []*mixplan.Transition `json:"transitions"` // nil where a plan is impossible
-	Sheet       string                `json:"sheet"`       // the same, as printable text
+	Tracks      []mixTrack `json:"tracks"`
+	Transitions []mixWays  `json:"transitions"` // transitions[i] leads from track i to track i+1
+	Sheet       string     `json:"sheet"`       // the same, as printable text
 }
 
 // mixPlan prepares cue points and transitions for a set in playing order.
 func (a *App) mixPlan(ids []string, name string) (mixView, error) {
 	a.mu.Lock()
 	tracks, err := a.pick(ids)
+	floor := a.settings.BPMFloor
 	a.mu.Unlock()
 	if err != nil {
 		return mixView{}, err
@@ -41,8 +49,10 @@ func (a *App) mixPlan(ids []string, name string) (mixView, error) {
 
 	var view mixView
 	entries := make([]mixplan.Entry, len(tracks))
+	results := make([]analysis.Result, len(tracks))
 	for i, t := range tracks {
-		r := t.Analysis
+		r := t.Analysis.InMeter(floor)
+		results[i] = r
 		bars := make([]int, len(r.Bars))
 		for j, v := range r.Bars {
 			bars[j] = int(v)
@@ -60,11 +70,14 @@ func (a *App) mixPlan(ids []string, name string) (mixView, error) {
 		})
 		entries[i] = mixplan.Entry{Artist: t.Artist, Title: t.Title, Result: r}
 		if i > 0 {
-			var plan *mixplan.Transition
-			if p, ok := mixplan.Plan(tracks[i-1].Analysis, r); ok {
-				plan = &p
+			var ways mixWays
+			if p, ok := mixplan.Plan(results[i-1], r); ok {
+				ways.Outro = &p
 			}
-			view.Transitions = append(view.Transitions, plan)
+			if p, ok := mixplan.EarlyPlan(results[i-1], r); ok {
+				ways.Early = &p
+			}
+			view.Transitions = append(view.Transitions, ways)
 		}
 	}
 	view.Sheet = mixplan.Sheet(name, entries)

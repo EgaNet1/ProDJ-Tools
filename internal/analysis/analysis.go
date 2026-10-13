@@ -9,7 +9,7 @@ import (
 
 // Version changes whenever the same audio would produce different results,
 // so that results cached by an older version are recomputed.
-const Version = 3
+const Version = 4
 
 // Result describes one track.
 type Result struct {
@@ -23,8 +23,9 @@ type Result struct {
 	Brightness    float64     `json:"brightness"`    // spectral centroid, Hz
 	Overview      []uint8     `json:"overview"`      // loudness outline for drawing, 0–255
 	Bars          []uint8     `json:"bars"`          // intensity of every bar, 0–255
-	Sections      []Section   `json:"sections"`      // intro, drops, breaks, outro
+	Sections      []Section   `json:"sections"`      // intro, drops, verses, breaks, outro
 	LastBar       int         `json:"lastBar"`       // first bar after the music ends
+	BarParity     int         `json:"barParity"`     // 0 or 1: which grid bars start real bars at half tempo; see InMeter
 }
 
 // Analyze measures a decoded track. Tracks shorter than a few seconds get an
@@ -39,7 +40,7 @@ func Analyze(sig audio.Signal) Result {
 	onsets := removeTrend(frames.flux, int(frames.fps()/2))
 	bpm, bpmConfidence := estimateTempo(onsets, frames.fps())
 	grid := findGrid(x, frames, bpm, sig.Duration)
-	bars, sections, lastBar := findStructure(frames, grid, sig.Duration)
+	s := findStructure(frames, grid, sig.Duration)
 
 	chroma, brightness := tonal(x, sig.Rate)
 	key, keyConfidence := matchKey(chroma)
@@ -56,9 +57,10 @@ func Analyze(sig audio.Signal) Result {
 		Punch:         mean(onsets),
 		Brightness:    brightness,
 		Overview:      overview,
-		Bars:          bars,
-		Sections:      sections,
-		LastBar:       lastBar,
+		Bars:          s.bars,
+		Sections:      s.sections,
+		LastBar:       s.lastBar,
+		BarParity:     s.barParity,
 	}
 }
 

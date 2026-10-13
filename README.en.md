@@ -13,6 +13,8 @@ A desktop app that turns a folder of tracks into a DJ set. It detects the tempo,
 
 The interface speaks 15 languages: English, Español, Português, Français, Deutsch, Italiano, Polski, Русский, Türkçe, العربية, हिन्दी, Bahasa Indonesia, 中文, 日本語, 한국어.
 
+![The Mixing tab: the plan of a transition between two tracks](docs/screenshots/mixing.png)
+
 ## Installation
 
 ### ⬇️ [Download the installer, ProDJTools-Setup.exe](https://github.com/EgaNet1/ProDJ-Tools/releases/latest)
@@ -43,12 +45,25 @@ Supported formats: FLAC, MP3 and WAV. Tags are written to FLAC and MP3.
 - Each transition is rated: the tempo change in percent and key compatibility (green, yellow or red).
 - "Listen to the joint" plays the end of one track and the start of the next, tempo-matched, with a smooth crossfade.
 
-**Mixing**: cue points for set preparation, like professional DJs use
+**Mixing**: cue points and a plan for every transition, the way professional DJs prepare a gig
 - A beat grid for every track: tempo to a thousandth of a BPM, first downbeat to a fraction of a millisecond. Grid accuracy is shown (typically ±0.3–2 ms).
-- Bar-level structure (intro, drops, breaks, outro) with cues on their downbeats: A MIX IN, B DROP, C BREAK, D DROP 2, E MIX OUT.
-- A phrase-aligned plan for each transition: where in track A to start track B, where to swap the bass (B's drop lands on a phrase boundary of A) and when A is fully out, with min:sec.ms times and bar numbers.
+- Track structure to the exact bar: intro, drops, verses, breaks, outro. Boundaries are found from six features of the sound (loudness, bass, mids, highs, kick strength, rhythmic density) and tied to 4- and 8-bar phrases; a pickup before the first phrase does not shift the cues.
+- Cues on the downbeats of those parts; a button always means the same thing:
+
+  | Button | Cue | Meaning |
+  |---|---|---|
+  | A | MIX IN | start of the music: start the track from here |
+  | B | DROP | the first drop |
+  | C | EARLY OUT | the calm part right after the first drop: bring the next track in here without waiting for the outro |
+  | D | BREAK | the breakdown before the second drop, when it follows a verse |
+  | E | DROP 2 | the second drop |
+  | F | MIX OUT | start of the outro: the usual place for the next track |
+
+- Two ways to mix every pair: **via the outro** (the classic: B comes in over A's outro and drops as it ends) and **after the first drop** (B comes in over A's calm part at cue C, and its drop plays instead of A's second drop).
+- The plan of a transition is three steps with exact min:sec.ms times and bar numbers: when to start B, when to swap the bass, when to take A out. A timeline shows the parts of both tracks and the moments ①②③.
+- Any genre: for hip-hop and other slow tracks (70–90 BPM) and for fast ones (180+ BPM), cues follow the real bar, according to the chosen tempo octave.
 - "Preview" plays the transition exactly as planned: B starts on the bar, tempo-matched, and the bass swaps on the downbeat.
-- The cue sheet is saved to a text file. On export, the grid and cues go into Rekordbox XML (hot cues and memory cues).
+- The cue sheet is saved to a text file. On export, the grid and cues go into Rekordbox XML (hot cues A–F and memory cues).
 
 **Tools**
 - **Energy curve**: the shape of the set, such as ramp-up, arc, waves, plateau or cool-down. Both energy and tempo follow the curve.
@@ -65,6 +80,14 @@ Supported formats: FLAC, MP3 and WAV. Tags are written to FLAC and MP3.
 **Player**: the volume control in the bottom bar applies both to single tracks and to transition previews, and the level is remembered between sessions.
 
 Keys: `Space` pause, `↑` `↓` select a track, `Enter` play, `L` lock, `Del` remove from the set, `M` mute and unmute.
+
+## Screenshots
+
+| Set | Track cues |
+|---|---|
+| ![Set](docs/screenshots/set.png) | ![Track cues](docs/screenshots/cues.png) |
+| **Mixing** | **Tools** |
+| ![Mixing](docs/screenshots/mixing.png) | ![Tools](docs/screenshots/tools.png) |
 
 ## Building from source
 
@@ -112,8 +135,9 @@ internal/
   audio/              FLAC/MP3/WAV decoding straight to ~11 kHz mono
   analysis/           tempo (spectral-flux autocorrelation), beat grid (folding every beat
                       of the track onto one), downbeat, bar structure,
-                      key (chromagram and Krumhansl–Kessler profiles), energy
-  mixplan/            A–E cues, phrase-aligned transition plans, cue sheet
+                      key (chromagram and Krumhansl–Kessler profiles), energy,
+                      half- and double-time meter
+  mixplan/            cues A–F, transition plans (via the outro, after the first drop), cue sheet
   camelot/            keys on the Camelot wheel and their compatibility
   library/            parallel folder scan, cache, relative energy
   setlist/            curves, transition scoring, order optimiser, suggestions
@@ -131,6 +155,8 @@ installer/            Inno Setup installer script
 ```
 
 **Ordering the set.** Each possible order gets a cost made up of tempo jumps, key clashes, energy and tempo deviating from the chosen curve, and tempo moving against the curve. The minimum is found by simulated annealing. The app starts from a random order and keeps swapping tracks. It always accepts improvements and sometimes accepts worse orders, less often as time goes on, so it doesn't get stuck on the first acceptable one. The search runs in parallel on all cores and the best result wins. A 30-track set is built in about 30 ms.
+
+**Finding the parts of a track.** Every bar is described by six features: loudness, bass, mids, highs, kick strength and rhythmic density. At every bar the features of the four bars before are compared with the four bars after; where the difference peaks, a new part starts, on that very bar. The phrase grid comes first: the bar offset where changes keep happening. Drops are the loudest parts, overall and in the bass (within about 1 dB of each other); breaks are parts without the kick; verses are calmer parts where the kick keeps going.
 
 **Building the beat grid.** A single hit in a dense mix is hard to pin down, because bass, hi-hats and synths all have attacks. So the whole track is folded onto a single beat: every moment is added to its position within the beat. At the exact tempo, the attacks of hundreds of beats land on one point, while an error of a thousandth of a BPM smears them out. That finds the tempo, and the folded attack (the average of every hit in the track) gives the phase to the sample. The downbeat is found where the sound rises most within the bar, since new parts and drops come in on the one.
 

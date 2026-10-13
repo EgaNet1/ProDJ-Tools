@@ -447,14 +447,17 @@ func (a *App) exportTrack(t *library.Track) export.Track {
 		Artist:   t.Artist,
 		Title:    t.Title,
 		Duration: t.Duration,
-		BPM:      tempo(t.Analysis),
+		BPM:      analysis.FoldBPM(tempo(t.Analysis), a.settings.BPMFloor),
 		Key:      t.Analysis.Key,
 	}
-	if g := t.Analysis.Grid; g.Valid() {
-		e.GridBPM, e.GridStart = g.BPM, g.FirstBeat
+	// The grid and cues go to Rekordbox in the meter the DJ reads the track
+	// in, so that its bars match the ones in this program.
+	r := t.Analysis.InMeter(a.settings.BPMFloor)
+	if r.Grid.Valid() {
+		e.GridBPM, e.GridStart = r.Grid.BPM, r.Grid.FirstBeat
 	}
-	for i, c := range mixplan.Cues(t.Analysis) {
-		e.Cues = append(e.Cues, export.Cue{Hot: i, Name: c.Name, Time: c.Time, Color: c.Color})
+	for _, c := range mixplan.Cues(r) {
+		e.Cues = append(e.Cues, export.Cue{Hot: c.Hot(), Name: c.Name, Time: c.Time, Color: c.Color})
 	}
 	return e
 }
