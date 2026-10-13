@@ -2,16 +2,17 @@ package server
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"slices"
+	"strings"
 
 	"prodjtools/internal/analysis"
 	"prodjtools/internal/desktop"
 	"prodjtools/internal/export"
+	"prodjtools/internal/i18n"
 	"prodjtools/internal/library"
 	"prodjtools/internal/mixplan"
 	"prodjtools/internal/naming"
@@ -33,8 +34,10 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /audio/{id}", a.handleAudio)
 	mux.HandleFunc("GET /api/state", a.handleState)
 	mux.HandleFunc("GET /api/curves", a.handleCurves)
+	mux.HandleFunc("GET /api/i18n", a.handleI18n)
 	mux.HandleFunc("POST /api/open", a.handleOpen)
 	mux.HandleFunc("POST /api/pick-folder", a.handlePickFolder)
+	mux.HandleFunc("POST /api/github", handleGitHub)
 	mux.HandleFunc("POST /api/settings", a.handleSettings)
 	mux.HandleFunc("POST /api/evaluate", a.handleEvaluate)
 	mux.HandleFunc("POST /api/build", a.handleBuild)
@@ -116,7 +119,7 @@ func (a *App) pick(ids []string) ([]*library.Track, error) {
 	for _, id := range ids {
 		t, ok := a.byID[id]
 		if !ok {
-			return nil, errors.New("трек не найден — откройте папку заново")
+			return nil, i18n.Error("error.track_gone")
 		}
 		out = append(out, t)
 	}
@@ -175,7 +178,8 @@ func (a *App) handleCurves(w http.ResponseWriter, r *http.Request) {
 	}
 	var out []curveView
 	for _, c := range setlist.Curves {
-		out = append(out, curveView{c.ID, c.Name, c.Description, c.Targets(40)})
+		name, description := i18n.T("curve."+c.ID+".name"), i18n.T("curve."+c.ID+".description")
+		out = append(out, curveView{c.ID, name, description, c.Targets(40)})
 	}
 	reply(w, out)
 }
@@ -212,22 +216,69 @@ func (a *App) handlePickFolder(w http.ResponseWriter, r *http.Request) {
 	reply(w, map[string]string{"dir": dir})
 }
 
+// authorURL is the author's GitHub page, linked from the interface header.
+const authorURL = "https://github.com/EgaNet1"
+
+// handleGitHub opens the author's page in the user's own browser: a link
+// followed inside the app window would open in its separate profile. The
+// address is fixed so the API cannot be used to open arbitrary URLs.
+func handleGitHub(w http.ResponseWriter, r *http.Request) {
+	if err := desktop.OpenURL(authorURL); err != nil {
+		fail(w, http.StatusInternalServerError, err)
+		return
+	}
+	reply(w, nil)
+}
+
+// handleSettings changes the settings present in the request.
 func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		BPMFloor float64 `json:"bpmFloor"`
+		BPMFloor *float64 `json:"bpmFloor"`
+		Lang     *string  `json:"lang"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	if req.BPMFloor < 50 || req.BPMFloor > 120 {
-		fail(w, http.StatusBadRequest, errors.New("нижняя граница темпа должна быть от 50 до 120 BPM"))
+	if req.BPMFloor != nil && (*req.BPMFloor < 50 || *req.BPMFloor > 120) {
+		fail(w, http.StatusBadRequest, i18n.Error("error.bpm_floor"))
+		return
+	}
+	if req.Lang != nil && !i18n.Supported(*req.Lang) {
+		fail(w, http.StatusBadRequest, i18n.Error("error.bad_request"))
 		return
 	}
 	a.mu.Lock()
-	a.settings.BPMFloor = req.BPMFloor
+	if req.BPMFloor != nil {
+		a.settings.BPMFloor = *req.BPMFloor
+	}
+	if req.Lang != nil {
+		a.settings.Lang = *req.Lang
+		i18n.Set(*req.Lang)
+	}
 	a.saveSettings()
 	a.mu.Unlock()
 	reply(w, nil)
+}
+
+// handleI18n gives the interface its language and messages. Until the user
+// picks a language, it is the best match for the window's preferred ones
+// (navigator.languages, passed as ?prefer=ru-RU,en).
+func (a *App) handleI18n(w http.ResponseWriter, r *http.Request) {
+	a.mu.Lock()
+	if !i18n.Supported(a.settings.Lang) {
+		a.settings.Lang = i18n.Match(strings.Split(r.URL.Query().Get("prefer"), ","))
+		i18n.Set(a.settings.Lang)
+		a.saveSettings()
+	}
+	lang := a.settings.Lang
+	a.mu.Unlock()
+	reply(w, map[string]any{
+		"lang":      lang,
+		"rtl":       i18n.RTL(lang),
+		"version":   a.version,
+		"languages": i18n.Languages(),
+		"messages":  i18n.Messages(lang),
+	})
 }
 
 // orderRequest is the part every set-related request shares.
@@ -308,7 +359,7 @@ func (a *App) handleSuggest(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.Unlock()
 	if !ok {
-		fail(w, http.StatusBadRequest, errors.New("трек не найден"))
+		fail(w, http.StatusBadRequest, i18n.Error("error.track_not_found"))
 		return
 	}
 	reply(w, setlist.Suggest(current[0], all, req.Direction, req.Weights, 8))
@@ -339,9 +390,9 @@ func (a *App) handleExport(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case scanning:
-		err = errors.New("дождитесь окончания анализа")
+		err = i18n.Error("error.wait_scan")
 	case len(set) == 0 && err == nil:
-		err = errors.New("сет пуст")
+		err = i18n.Error("error.empty_set")
 	}
 	if err != nil {
 		fail(w, http.StatusBadRequest, err)
@@ -450,7 +501,7 @@ func handleLog(w http.ResponseWriter, r *http.Request) {
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(v); err != nil {
-		fail(w, http.StatusBadRequest, errors.New("некорректный запрос"))
+		fail(w, http.StatusBadRequest, i18n.Error("error.bad_request"))
 		return false
 	}
 	return true

@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"prodjtools/internal/analysis"
+	"prodjtools/internal/i18n"
 )
 
 // Moment is one point in a track.
@@ -74,9 +75,9 @@ func Plan(a, b analysis.Result) (Transition, bool) {
 	}
 	switch p := math.Abs(t.Pitch); {
 	case p > 8:
-		t.Note = fmt.Sprintf("Темп отличается на %.1f%% — слишком много для длинного сведения: лучше короткая склейка на брейке или эхо-аут.", p)
+		t.Note = i18n.T("note.pitch_far", fmt.Sprintf("%.1f", p))
 	case p > 4:
-		t.Note = fmt.Sprintf("Темп отличается на %.1f%% — подтяните его заранее, ещё до начала перехода.", p)
+		t.Note = i18n.T("note.pitch_near", fmt.Sprintf("%.1f", p))
 	}
 	return t, true
 }

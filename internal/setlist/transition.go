@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"prodjtools/internal/camelot"
+	"prodjtools/internal/i18n"
 )
 
 // Grade is how a transition will sound.
@@ -78,15 +79,15 @@ func advice(change float64, r camelot.Relation) string {
 	d := math.Abs(change)
 	switch {
 	case d > 6 && r == camelot.Clash:
-		return "Большой скачок темпа и конфликт ключей — лучше переставить трек или склеить резко, на брейке."
+		return i18n.T("advice.tempo_and_clash")
 	case d > 6:
-		return fmt.Sprintf("Темп меняется на %.0f%% — переходите через брейк, эхо-аут или резкую склейку.", d)
+		return i18n.T("advice.tempo_jump", fmt.Sprintf("%.0f", d))
 	case r == camelot.Clash:
-		return "Ключи конфликтуют — сводите на ударных и не накладывайте мелодии друг на друга."
+		return i18n.T("advice.clash")
 	case d > 3:
-		return "Заметная смена темпа — подтяните его заранее или растяните переход."
+		return i18n.T("advice.tempo_shift")
 	case r == camelot.Boost:
-		return "Подъём по ключу даёт слышимый прирост энергии — хорошо перед дропом."
+		return i18n.T("advice.boost")
 	}
 	return ""
 }

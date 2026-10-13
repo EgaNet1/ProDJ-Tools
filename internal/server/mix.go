@@ -1,12 +1,12 @@
 package server
 
 import (
-	"errors"
 	"net/http"
 	"path/filepath"
 
 	"prodjtools/internal/analysis"
 	"prodjtools/internal/export"
+	"prodjtools/internal/i18n"
 	"prodjtools/internal/mixplan"
 )
 
@@ -105,10 +105,10 @@ func (a *App) handleCueSheet(w http.ResponseWriter, r *http.Request) {
 	dir := a.dir
 	a.mu.Unlock()
 	if dir == "" {
-		fail(w, http.StatusBadRequest, errors.New("папка не открыта"))
+		fail(w, http.StatusBadRequest, i18n.Error("error.no_open_folder"))
 		return
 	}
-	file := name + " — метки.txt"
+	file := i18n.T("sheet.file", name)
 	if err := export.WriteText(filepath.Join(dir, file), view.Sheet); err != nil {
 		fail(w, http.StatusInternalServerError, err)
 		return

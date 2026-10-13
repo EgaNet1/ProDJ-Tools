@@ -4,7 +4,6 @@
 package export
 
 import (
-	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"strings"
 
 	"prodjtools/internal/camelot"
+	"prodjtools/internal/i18n"
 	"prodjtools/internal/naming"
 	"prodjtools/internal/safefile"
 	"prodjtools/internal/tags"
@@ -94,7 +94,7 @@ func Apply(dir string, set, rest []Track, opt Options) (Report, error) {
 
 	b, err := loadBackup(dir)
 	if err != nil {
-		return rep, fmt.Errorf("резервная копия: %w", err)
+		return rep, fmt.Errorf("%s: %w", i18n.T("export.backup"), err)
 	}
 	if touching {
 		for _, t := range slices.Concat(set, leaving) {
@@ -103,9 +103,9 @@ func Apply(dir string, set, rest []Track, opt Options) (Report, error) {
 			}
 		}
 		if err := b.save(dir); err != nil {
-			return rep, fmt.Errorf("резервная копия: %w", err)
+			return rep, fmt.Errorf("%s: %w", i18n.T("export.backup"), err)
 		}
-		rep.logf("Исходные имена и теги сохранены в %s", backupFile)
+		rep.logf("%s", i18n.T("export.log.backup", backupFile))
 	}
 
 	width := naming.Width(len(set))
@@ -115,7 +115,7 @@ func Apply(dir string, set, rest []Track, opt Options) (Report, error) {
 		n := i + 1
 		if opt.Tags && tags.Writable(t.Path) {
 			if err := tags.Write(t.Path, setFields(n, width, len(set), t, opt)); err != nil {
-				return rep, fmt.Errorf("%s: теги: %w", filepath.Base(t.Path), err)
+				return rep, fmt.Errorf("%s: %s: %w", filepath.Base(t.Path), i18n.T("export.tags_error"), err)
 			}
 			tagged++
 		}
@@ -129,10 +129,10 @@ func Apply(dir string, set, rest []Track, opt Options) (Report, error) {
 		final[i] = t
 	}
 	if opt.Rename {
-		rep.logf("Файлы пронумерованы: %d", len(set))
+		rep.logf("%s", i18n.T("export.log.renamed", len(set)))
 	}
 	if opt.Tags {
-		rep.logf("Номера записаны в теги: %d", tagged)
+		rep.logf("%s", i18n.T("export.log.tagged", tagged))
 	}
 
 	for _, t := range leaving {
@@ -147,7 +147,7 @@ func Apply(dir string, set, rest []Track, opt Options) (Report, error) {
 			f := maps.Clone(original.Fields)
 			f["TITLE"] = naming.CleanTitle(f["TITLE"], n)
 			if err := tags.Write(t.Path, f); err != nil {
-				return rep, fmt.Errorf("%s: теги: %w", stable, err)
+				return rep, fmt.Errorf("%s: %s: %w", stable, i18n.T("export.tags_error"), err)
 			}
 		}
 		name := filepath.Base(t.Path)
@@ -159,7 +159,7 @@ func Apply(dir string, set, rest []Track, opt Options) (Report, error) {
 		}
 	}
 	if opt.Rename && len(leaving) > 0 {
-		rep.logf("Треки вне сета потеряли старые номера: %d", len(leaving))
+		rep.logf("%s", i18n.T("export.log.unnumbered", len(leaving)))
 	}
 
 	if opt.M3U {
@@ -167,14 +167,14 @@ func Apply(dir string, set, rest []Track, opt Options) (Report, error) {
 		if err := writeM3U(filepath.Join(dir, name), opt.Name, final); err != nil {
 			return rep, err
 		}
-		rep.logf("Плейлист: %s", name)
+		rep.logf("%s", i18n.T("export.log.playlist", name))
 	}
 	if opt.Cues && opt.Sheet != "" {
-		name := opt.Name + " — метки.txt"
+		name := i18n.T("sheet.file", opt.Name)
 		if err := WriteText(filepath.Join(dir, name), opt.Sheet); err != nil {
 			return rep, err
 		}
-		rep.logf("Лист меток: %s", name)
+		rep.logf("%s", i18n.T("export.log.sheet", name))
 	}
 	if !opt.Cues {
 		for i := range final {
@@ -214,7 +214,7 @@ func Restore(dir string) (Report, error) {
 		return rep, err
 	}
 	if len(b.Tracks) == 0 {
-		return rep, errors.New("в этой папке нет резервной копии")
+		return rep, i18n.Error("export.no_backup")
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -231,7 +231,7 @@ func Restore(dir string) (Report, error) {
 		original := b.Tracks[stable]
 		path, ok := current[stable]
 		if !ok {
-			rep.logf("Не найден: %s", stable)
+			rep.logf("%s", i18n.T("export.log.missing", stable))
 			failed++
 			continue
 		}
@@ -249,9 +249,9 @@ func Restore(dir string) (Report, error) {
 		}
 		restored++
 	}
-	rep.logf("Возвращено как было: %d", restored)
+	rep.logf("%s", i18n.T("export.log.restored", restored))
 	if failed > 0 {
-		return rep, fmt.Errorf("не удалось вернуть %d файл(ов), резервная копия сохранена", failed)
+		return rep, i18n.Error("export.restore_failed", failed)
 	}
 	b.discard(dir)
 	return rep, nil

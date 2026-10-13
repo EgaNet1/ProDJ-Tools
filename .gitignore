@@ -1,2 +1,6 @@
 .goenv/
+.tools/
+dist/
 *.exe
+*~
+*.syso

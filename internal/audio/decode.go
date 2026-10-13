@@ -4,8 +4,6 @@ package audio
 import (
 	"bufio"
 	"encoding/binary"
-	"errors"
-	"fmt"
 	"io"
 	"math"
 	"os"
@@ -16,6 +14,8 @@ import (
 	"github.com/go-audio/wav"
 	"github.com/hajimehoshi/go-mp3"
 	"github.com/mewkiz/flac"
+
+	"prodjtools/internal/i18n"
 )
 
 // AnalysisRate is the sample rate the decoder aims for. Everything tempo and
@@ -46,7 +46,7 @@ func Supported(name string) bool {
 func Decode(path string) (Signal, error) {
 	decode, ok := decoders[strings.ToLower(filepath.Ext(path))]
 	if !ok {
-		return Signal{}, fmt.Errorf("формат %s не поддерживается", filepath.Ext(path))
+		return Signal{}, i18n.Error("audio.unsupported", filepath.Ext(path))
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -63,7 +63,7 @@ func decodeFLAC(f *os.File) (Signal, error) {
 	}
 	info := stream.Info
 	if info.NChannels == 0 || info.BitsPerSample == 0 {
-		return Signal{}, errors.New("повреждённый FLAC")
+		return Signal{}, i18n.Error("audio.bad_flac")
 	}
 	scale := 1 / (float32(int64(1)<<(info.BitsPerSample-1)) * float32(info.NChannels))
 	d := newDownsampler(int(info.SampleRate), int(info.NSamples))
@@ -115,7 +115,7 @@ func decodeMP3(f *os.File) (Signal, error) {
 func decodeWAV(f *os.File) (Signal, error) {
 	dec := wav.NewDecoder(f)
 	if !dec.IsValidFile() {
-		return Signal{}, errors.New("повреждённый или неподдерживаемый WAV")
+		return Signal{}, i18n.Error("audio.bad_wav")
 	}
 	if err := dec.FwdToPCM(); err != nil {
 		return Signal{}, err

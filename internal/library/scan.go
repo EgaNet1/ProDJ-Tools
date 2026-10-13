@@ -7,6 +7,7 @@ import (
 	"runtime"
 
 	"prodjtools/internal/audio"
+	"prodjtools/internal/i18n"
 )
 
 // Progress is told about every finished file. It is called from one
@@ -73,7 +74,7 @@ func Scan(dir string, cache *Cache, progress Progress) ([]*Track, []error) {
 		switch {
 		case t == nil:
 		case seen[t.ID]:
-			errs = append(errs, fmt.Errorf("%s: дубликат, пропущен", t.File))
+			errs = append(errs, fmt.Errorf("%s: %s", t.File, i18n.T("scan.duplicate")))
 		default:
 			seen[t.ID] = true
 			tracks = append(tracks, t)

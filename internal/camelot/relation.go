@@ -1,5 +1,7 @@
 package camelot
 
+import "prodjtools/internal/i18n"
+
 // Relation says how the key changes when one track is mixed into another.
 type Relation int
 
@@ -61,17 +63,17 @@ func (r Relation) Cost() float64 {
 func (r Relation) String() string {
 	switch r {
 	case Same:
-		return "тот же ключ"
+		return i18n.T("relation.same")
 	case Adjacent:
-		return "соседний ключ"
+		return i18n.T("relation.adjacent")
 	case Relative:
-		return "параллельный лад"
+		return i18n.T("relation.relative")
 	case Diagonal:
-		return "по диагонали"
+		return i18n.T("relation.diagonal")
 	case Boost:
-		return "подъём ключа"
+		return i18n.T("relation.boost")
 	case Clash:
-		return "конфликт ключей"
+		return i18n.T("relation.clash")
 	}
-	return "ключ не определён"
+	return i18n.T("relation.unknown")
 }

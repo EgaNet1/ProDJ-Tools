@@ -3,15 +3,19 @@
 package desktop
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
+
+	"prodjtools/internal/i18n"
 )
 
 // OpenWindow opens url in the default browser.
-func OpenWindow(url, profile string) error {
+func OpenWindow(url, profile string) error { return OpenURL(url) }
+
+// OpenURL opens url in the default browser.
+func OpenURL(url string) error {
 	opener := "xdg-open"
 	if runtime.GOOS == "darwin" {
 		opener = "open"
@@ -21,7 +25,7 @@ func OpenWindow(url, profile string) error {
 
 // PickFolder is only available on Windows; elsewhere the path is typed in.
 func PickFolder(start string) (string, error) {
-	return "", errors.New("выбор папки через диалог есть только в Windows — вставьте путь вручную")
+	return "", i18n.Error("picker.windows_only")
 }
 
 // Alert prints the message.

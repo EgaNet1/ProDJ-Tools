@@ -86,7 +86,7 @@ func TestPlanShortOutro(t *testing.T) {
 func TestSheet(t *testing.T) {
 	a := track(112, analysis.Section{Bar: 0, Kind: "intro"}, analysis.Section{Bar: 16, Kind: "drop"}, analysis.Section{Bar: 96, Kind: "outro"})
 	text := Sheet("TEST", []Entry{{"X", "One", a}, {"Y", "Two", a}})
-	for _, want := range []string{"01. X — One", "A  MIX IN", "0:00.500", "01 → 02   One → Two", "такт 97"} {
+	for _, want := range []string{"01. X — One", "A  MIX IN", "0:00.500", "01 → 02   One → Two", "bar 97"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("sheet lacks %q:\n%s", want, text)
 		}

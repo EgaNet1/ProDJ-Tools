@@ -27,6 +27,54 @@ async function call(method, path, body) {
 const get = path => call('GET', path)
 const post = (path, body = {}) => call('POST', path, body)
 
+// ── Language ──────────────────────────────────────────────────────────
+//
+// Messages come from web/i18n/<language>.json through /api/i18n, with
+// English filling any gaps. t('key', a, b) fills the placeholders {0}, {1}.
+// Static texts of the page are marked with data-i18n attributes.
+
+const i18n = { lang: 'en', rtl: false, version: '', languages: [], messages: {} }
+
+const t = (key, ...args) =>
+  (i18n.messages[key] ?? key).replace(/\{(\d+)\}/g, (m, i) => (i < args.length ? args[i] : m))
+
+// arrow points from one thing to the next in reading order.
+const arrow = () => (i18n.rtl ? '←' : '→')
+
+async function loadLanguage() {
+  Object.assign(i18n, await get(`/api/i18n?prefer=${encodeURIComponent(navigator.languages.join(','))}`))
+  document.documentElement.lang = i18n.lang
+  document.documentElement.dir = i18n.rtl ? 'rtl' : 'ltr'
+  translatePage()
+}
+
+function translatePage() {
+  $$('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n) })
+  $$('[data-i18n-html]').forEach(el => { el.innerHTML = t(el.dataset.i18nHtml) })
+  $$('[data-i18n-title]').forEach(el => { el.title = t(el.dataset.i18nTitle) })
+  $$('[data-i18n-label]').forEach(el => el.setAttribute('aria-label', t(el.dataset.i18nLabel)))
+  $$('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder) })
+  $('#version').textContent = i18n.version
+  $('#lang-code').textContent = i18n.lang.toUpperCase()
+  $('#lang-menu').innerHTML = i18n.languages.map(l => `<li role="none">
+    <button role="menuitemradio" data-lang="${l.code}" aria-checked="${l.code === i18n.lang}" lang="${l.code}"${l.rtl ? ' dir="rtl"' : ''}>${esc(l.name)}</button>
+  </li>`).join('')
+  showLog(state.log)
+  renderVolume()
+}
+
+async function setLanguage(code) {
+  closeMenus()
+  if (code === i18n.lang) return
+  await post('/api/settings', { lang: code })
+  await loadLanguage()
+  // The server writes curve names, transition advice and the cue sheet in
+  // the chosen language, so those are fetched again.
+  state.curves = await get('/api/curves')
+  state.mixKey = ''
+  await refresh()
+}
+
 // ── State ─────────────────────────────────────────────────────────────
 
 const DEFAULT_WEIGHTS = { harmony: 50, tempo: 50, energy: 50 } // slider units, 50 = normal
@@ -54,6 +102,7 @@ const state = {
   mix: null,          // cue points and transition plans for the order
   mixKey: '',         // what the mix plan was computed for
   mixGen: 0,          // bumped whenever tracks are reloaded
+  log: [],            // lines of the last export or restore
 }
 
 const track = id => state.tracks.get(id)
@@ -86,7 +135,7 @@ function loadSet(dir) {
 async function refresh() {
   const s = await get('/api/state')
   Object.assign(state, { dir: s.dir, recent: s.recent ?? [], bpmFloor: s.bpmFloor, hasBackup: s.hasBackup, scan: s.scan })
-  state.tracks = new Map((s.tracks ?? []).map(t => [t.id, t]))
+  state.tracks = new Map((s.tracks ?? []).map(tr => [tr.id, tr]))
   state.mixGen++
 
   if (s.scan.running) {
@@ -188,14 +237,14 @@ async function afterOrderChange() {
 }
 
 async function openFolder(dir) {
-  closeFolderMenu()
+  closeMenus()
   await post('/api/open', { dir })
   state.loadedDir = null
   await refresh()
 }
 
 async function pickFolder() {
-  closeFolderMenu()
+  closeMenus()
   const r = await post('/api/pick-folder')
   if (r.dir) {
     state.loadedDir = null
@@ -269,17 +318,17 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c =>
 // orange, red, magenta, violet and blue to 12, cyan.
 const keyHue = code => (170 - (parseInt(code) - 1) * 30 + 360) % 360
 
-function keyChip(t) {
-  if (!t.key) return '<span class="key none" title="Ключ не определён">—</span>'
-  const cls = ['key', t.key.endsWith('B') && 'major', !t.keySure && 'unsure'].filter(Boolean).join(' ')
-  const title = t.keyName + (t.keySure ? '' : ' — определён неуверенно')
-  return `<span class="${cls}" style="--h:${keyHue(t.key)}" title="${esc(title)}">${t.key}</span>`
+function keyChip(tr) {
+  if (!tr.key) return `<span class="key none" title="${esc(t('key.unknown'))}">—</span>`
+  const cls = ['key', tr.key.endsWith('B') && 'major', !tr.keySure && 'unsure'].filter(Boolean).join(' ')
+  const title = tr.keySure ? tr.keyName : t('key.unsure', tr.keyName)
+  return `<span class="${cls}" style="--h:${keyHue(tr.key)}" title="${esc(title)}">${tr.key}</span>`
 }
 
 function meter(energy) {
   const on = Math.round(energy * 9) + 1
   const cells = Array.from({ length: 10 }, (_, i) => `<i${i < on ? ' class="on"' : ''}></i>`).join('')
-  return `<span class="meter" title="Энергия ${on} из 10">${cells}</span>`
+  return `<span class="meter" title="${esc(t('energy.meter', on))}">${cells}</span>`
 }
 
 function waveform(wave) {
@@ -300,13 +349,15 @@ const icon = {
   lock: '<svg viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>',
   unlock: '<svg viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 4.9-.7"/></svg>',
   remove: '<svg viewBox="0 0 16 16"><path d="M4 8h8"/></svg>',
+  speaker: '<svg viewBox="0 0 16 16"><path class="solid" d="M2 6h2.5L8 3v10L4.5 10H2z"/><path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.5 3.5a6.3 6.3 0 0 1 0 9"/></svg>',
+  muted: '<svg viewBox="0 0 16 16"><path class="solid" d="M2 6h2.5L8 3v10L4.5 10H2z"/><path d="M10.5 6l4 4M14.5 6l-4 4"/></svg>',
 }
 
 // ── Rendering: frame ──────────────────────────────────────────────────
 
 function renderAll() {
   const name = $('#folder-name')
-  name.textContent = state.dir || 'Папка не выбрана'
+  name.textContent = state.dir || t('folder.none')
   name.parentElement.title = state.dir
   renderRecent($('#recent-menu'))
   renderView()
@@ -332,7 +383,7 @@ function showView(view) {
 function renderRecent(list) {
   list.innerHTML = state.recent.length
     ? state.recent.map(dir => `<li><button data-dir="${esc(dir)}" title="${esc(dir)}">${esc(dir)}</button></li>`).join('')
-    : '<li class="muted" style="padding:6px 8px">Пока ничего</li>'
+    : `<li class="muted" style="padding:6px 8px">${esc(t('recent.empty'))}</li>`
 }
 
 // ── Rendering: set ────────────────────────────────────────────────────
@@ -352,7 +403,7 @@ function renderSet() {
     rows.push(trackRow(track(id), i))
   })
   $('#setlist').innerHTML = rows.join('') ||
-    `<li class="hint" style="padding:24px 20px">${state.tracks.size ? 'Все треки убраны из сета — верните их из списка ниже.' : 'В этой папке нет треков FLAC, MP3 или WAV.'}</li>`
+    `<li class="hint" style="padding:24px 20px">${esc(t(state.tracks.size ? 'set.all_benched' : 'set.no_tracks'))}</li>`
 
   renderBench()
   renderSide()
@@ -360,21 +411,21 @@ function renderSet() {
   markPlaying()
 }
 
-function trackRow(t, i) {
-  const locked = state.locked.has(t.id)
-  const classes = ['track', state.selected === t.id && 'selected', locked && 'locked'].filter(Boolean).join(' ')
-  return `<li class="${classes}" data-id="${t.id}" draggable="true">
-    <span class="grip" title="Перетащить"></span>
+function trackRow(tr, i) {
+  const locked = state.locked.has(tr.id)
+  const classes = ['track', state.selected === tr.id && 'selected', locked && 'locked'].filter(Boolean).join(' ')
+  return `<li class="${classes}" data-id="${tr.id}" draggable="true">
+    <span class="grip" title="${esc(t('track.drag'))}"></span>
     <span class="pos">${pad(i + 1, posWidth())}</span>
-    <button class="icon" data-act="play" title="Прослушать">${icon.play}</button>
-    <div class="name" title="${esc(t.file)}"><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></div>
-    ${waveform(t.wave)}
-    <span class="bpm${t.bpmSure ? '' : ' unsure'}"${t.bpmSure ? '' : ' title="Темп определён неуверенно"'}>${fmtBPM(t.bpm)}</span>
-    <span>${keyChip(t)}</span>
-    ${meter(t.energy)}
-    <span class="time">${fmtTime(t.duration)}</span>
-    <button class="icon lock${locked ? ' on' : ''}" data-act="lock" title="${locked ? 'Снять замок' : 'Закрепить на этом месте'}">${locked ? icon.lock : icon.unlock}</button>
-    <button class="icon out" data-act="out" title="Убрать из сета">${icon.remove}</button>
+    <button class="icon" data-act="play" title="${esc(t('track.play'))}">${icon.play}</button>
+    <div class="name" title="${esc(tr.file)}"><b>${esc(tr.title)}</b><span>${esc(tr.artist)}</span></div>
+    ${waveform(tr.wave)}
+    <span class="bpm${tr.bpmSure ? '' : ' unsure'}"${tr.bpmSure ? '' : ` title="${esc(t('bpm.unsure'))}"`}>${fmtBPM(tr.bpm)}</span>
+    <span>${keyChip(tr)}</span>
+    ${meter(tr.energy)}
+    <span class="time">${fmtTime(tr.duration)}</span>
+    <button class="icon lock${locked ? ' on' : ''}" data-act="lock" title="${esc(t(locked ? 'track.unlock' : 'track.lock'))}">${locked ? icon.lock : icon.unlock}</button>
+    <button class="icon out" data-act="out" title="${esc(t('track.out'))}">${icon.remove}</button>
   </li>`
 }
 
@@ -382,14 +433,14 @@ function joinRow(tr, i) {
   return `<li class="join ${tr.grade}" data-join="${i}"${tr.advice ? ` title="${esc(tr.advice)}"` : ''}>
     <span class="link"></span>
     <span class="what"><span class="dot"></span><span class="tempo">${signed(tr.tempoChange)}%</span>·<span>${esc(tr.key)}</span></span>
-    <button data-act="join">слушать стык</button>
+    <button data-act="join">${esc(t('join.listen'))}</button>
   </li>`
 }
 
 function renderScan() {
   const { done, total, current } = state.scan
   $('#scan-bar').style.width = total ? `${(done / total) * 100}%` : '0'
-  $('#scan-count').textContent = total ? `${done} из ${total}` : 'Ищу треки…'
+  $('#scan-count').textContent = total ? t('scan.count', done, total) : t('scan.searching')
   $('#scan-file').textContent = current ?? ''
 }
 
@@ -397,13 +448,13 @@ function renderBench() {
   $('#bench').hidden = !state.bench.length
   $('#bench-count').textContent = state.bench.length
   $('#bench-list').innerHTML = state.bench.map(id => {
-    const t = track(id)
+    const tr = track(id)
     return `<li data-id="${id}">
-      <div class="name"><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></div>
-      <span class="bpm">${fmtBPM(t.bpm)}</span>
-      <span>${keyChip(t)}</span>
-      ${meter(t.energy)}
-      <button data-act="in">В сет</button>
+      <div class="name"><b>${esc(tr.title)}</b><span>${esc(tr.artist)}</span></div>
+      <span class="bpm">${fmtBPM(tr.bpm)}</span>
+      <span>${keyChip(tr)}</span>
+      ${meter(tr.energy)}
+      <button data-act="in">${esc(t('bench.in'))}</button>
     </li>`
   }).join('')
 }
@@ -411,7 +462,7 @@ function renderBench() {
 function renderSide() {
   const s = state.summary
   const curve = state.curves.find(c => c.id === state.curve)
-  $('#curve-name').textContent = curve ? `кривая «${curve.name}»` : ''
+  $('#curve-name').textContent = curve ? t('chart.curve', curve.name) : ''
   $('#unlock-all').hidden = !state.locked.size
   $('#build').disabled = state.order.length < 2
 
@@ -421,10 +472,10 @@ function renderSide() {
     return
   }
   $('#stats').innerHTML = `
-    <div><dt>Треков</dt><dd>${s.count}</dd></div>
-    <div><dt>Длительность</dt><dd>${fmtTime(s.length)}<small>≈ ${fmtTime(s.mixLength)} со сведением</small></dd></div>
-    <div><dt>Темп</dt><dd>${fmtBPM(s.bpmMin)}–${fmtBPM(s.bpmMax)}</dd></div>
-    <div class="${s.rough ? 'alert' : ''}"><dt>Жёсткие стыки</dt><dd>${s.rough}</dd></div>`
+    <div><dt>${esc(t('stats.tracks'))}</dt><dd>${s.count}</dd></div>
+    <div><dt>${esc(t('stats.length'))}</dt><dd>${fmtTime(s.length)}<small>${esc(t('stats.mixed', fmtTime(s.mixLength)))}</small></dd></div>
+    <div><dt>${esc(t('stats.tempo'))}</dt><dd>${fmtBPM(s.bpmMin)}–${fmtBPM(s.bpmMax)}</dd></div>
+    <div class="${s.rough ? 'alert' : ''}"><dt>${esc(t('stats.rough'))}</dt><dd>${s.rough}</dd></div>`
   drawChart(s)
 }
 
@@ -434,8 +485,8 @@ function drawChart(s) {
   const current = state.order.indexOf(state.selected)
   const bars = s.energy.map((e, i) => {
     const h = Math.max(2, e * (H - top))
-    const t = track(state.order[i])
-    return `<rect x="${(i * bw + gap / 2).toFixed(2)}" y="${(H - h).toFixed(2)}" width="${Math.max(0.5, bw - gap).toFixed(2)}" height="${h.toFixed(2)}"${i === current ? ' class="current"' : ''}><title>${pad(i + 1, posWidth())} ${esc(t?.title)}</title></rect>`
+    const tr = track(state.order[i])
+    return `<rect x="${(i * bw + gap / 2).toFixed(2)}" y="${(H - h).toFixed(2)}" width="${Math.max(0.5, bw - gap).toFixed(2)}" height="${h.toFixed(2)}"${i === current ? ' class="current"' : ''}><title>${pad(i + 1, posWidth())} ${esc(tr?.title)}</title></rect>`
   }).join('')
   const line = s.target.map((v, i) => `${((i + 0.5) * bw).toFixed(2)},${(H - v * (H - top)).toFixed(2)}`).join(' ')
   $('#chart').innerHTML = `${bars}<polyline points="${line}"/>`
@@ -473,15 +524,15 @@ function renderChecks() {
   const list = $('#checks')
   const problems = state.transitions.map((tr, i) => ({ tr, i })).filter(({ tr }) => tr.grade !== 'good')
   if (!problems.length) {
-    list.innerHTML = `<li class="all-good">${state.order.length > 1 ? 'Все переходы гладкие.' : 'В сете меньше двух треков.'}</li>`
+    list.innerHTML = `<li class="all-good">${esc(t(state.order.length > 1 ? 'checks.all_good' : 'checks.too_few'))}</li>`
     return
   }
   const w = posWidth()
   list.innerHTML = problems.map(({ tr, i }) => {
     const a = track(state.order[i]), b = track(state.order[i + 1])
-    return `<li class="${tr.grade}" data-pos="${i + 1}" title="Показать в сете">
-      <span class="pair">${pad(i + 1, w)} → ${pad(i + 2, w)} · ${signed(tr.tempoChange)}% · ${esc(tr.key)}</span>
-      <p>${esc(a.title)} → ${esc(b.title)}</p>
+    return `<li class="${tr.grade}" data-pos="${i + 1}" title="${esc(t('checks.show'))}">
+      <span class="pair">${pad(i + 1, w)} ${arrow()} ${pad(i + 2, w)} · ${signed(tr.tempoChange)}% · ${esc(tr.key)}</span>
+      <p>${esc(a.title)} ${arrow()} ${esc(b.title)}</p>
       ${tr.advice ? `<p>${esc(tr.advice)}</p>` : ''}
     </li>`
   }).join('')
@@ -492,8 +543,8 @@ async function renderNext() {
   const from = all.includes(state.selected) ? state.selected : all[0]
   const select = $('#next-from')
   select.innerHTML = all.map(id => {
-    const t = track(id), pos = state.order.indexOf(id)
-    const label = `${pos < 0 ? 'вне сета' : pad(pos + 1, posWidth())} · ${t.title} — ${t.artist}`
+    const tr = track(id), pos = state.order.indexOf(id)
+    const label = `${pos < 0 ? t('next.bench') : pad(pos + 1, posWidth())} · ${tr.title} — ${tr.artist}`
     return `<option value="${id}"${id === from ? ' selected' : ''}>${esc(label)}</option>`
   }).join('')
   $$('#next-direction button').forEach(b => b.setAttribute('aria-checked', Number(b.dataset.dir) === state.direction))
@@ -506,16 +557,16 @@ async function renderNext() {
   drawWheel(track(from).key)
   const list = await post('/api/suggest', { from, direction: state.direction, weights: serverWeights() })
   $('#suggestions').innerHTML = list.map(s => {
-    const t = track(s.id), pos = state.order.indexOf(s.id)
-    const where = pos < 0 ? 'вне сета' : `сейчас № ${pos + 1}`
-    const arrow = s.energyShift > 0.05 ? '↑' : s.energyShift < -0.05 ? '↓' : '→'
+    const tr = track(s.id), pos = state.order.indexOf(s.id)
+    const where = pos < 0 ? t('next.bench') : t('next.now', pos + 1)
+    const shift = s.energyShift > 0.05 ? '↑' : s.energyShift < -0.05 ? '↓' : arrow()
     return `<li>
-      <span>${keyChip(t)}</span>
-      <div class="name"><b>${esc(t.title)}</b><span>${esc(t.artist)} <span class="where">· ${where}</span></span></div>
+      <span>${keyChip(tr)}</span>
+      <div class="name"><b>${esc(tr.title)}</b><span>${esc(tr.artist)} <span class="where">· ${esc(where)}</span></span></div>
       <span class="tempo">${signed(s.transition.tempoChange)}%</span>
       <span class="rel ${s.transition.grade}">${esc(s.transition.key)}</span>
-      <span class="shift" title="Энергия относительно текущего трека">${arrow}</span>
-      <button data-insert="${s.id}" data-after="${from}">Поставить после</button>
+      <span class="shift" title="${esc(t('next.shift'))}">${shift}</span>
+      <button data-insert="${s.id}" data-after="${from}">${esc(t('next.insert'))}</button>
     </li>`
   }).join('')
 }
@@ -540,7 +591,7 @@ function sector(cx, cy, r0, r1, a0, a1) {
 
 function drawWheel(current) {
   const counts = {}
-  for (const t of state.tracks.values()) if (t.key) counts[t.key] = (counts[t.key] ?? 0) + 1
+  for (const tr of state.tracks.values()) if (tr.key) counts[tr.key] = (counts[tr.key] ?? 0) + 1
   const fits = compatibleKeys(current)
   const cx = 120, cy = 120, slice = Math.PI / 6
   let svg = ''
@@ -552,7 +603,7 @@ function drawWheel(current) {
         ? `hsl(${keyHue(code)} 45% ${Math.min(44, 20 + count * 6)}%)`
         : `hsl(${keyHue(code)} 12% 13%)`
       const cls = code === current ? 'current' : fits.has(code) ? 'fits' : ''
-      svg += `<path d="${sector(cx, cy, r0, r1, a0, a0 + slice)}" fill="${fill}" class="${cls}"><title>${code}: треков — ${count}</title></path>`
+      svg += `<path d="${sector(cx, cy, r0, r1, a0, a0 + slice)}" fill="${fill}" class="${cls}"><title>${esc(t('wheel.count', code, count))}</title></path>`
       const [x, y] = polar(cx, cy, (r0 + r1) / 2, a0 + slice / 2)
       svg += `<text x="${x.toFixed(1)}" y="${(y - 5).toFixed(1)}">${code}</text>`
       if (count) svg += `<text class="count" x="${x.toFixed(1)}" y="${(y + 6).toFixed(1)}">${count}</text>`
@@ -574,9 +625,10 @@ function renderExport() {
 }
 
 function showLog(lines, error) {
-  const items = (lines ?? []).map(l => `<li>${esc(l)}</li>`)
+  state.log = lines ?? []
+  const items = state.log.map(l => `<li>${esc(l)}</li>`)
   if (error) items.push(`<li class="error">${esc(error)}</li>`)
-  $('#ex-log').innerHTML = items.join('') || '<li class="muted">Пока пусто.</li>'
+  $('#ex-log').innerHTML = items.join('') || `<li class="muted">${esc(t('log.empty'))}</li>`
 }
 
 // Destructive buttons ask for a second click instead of a modal dialog.
@@ -598,7 +650,7 @@ function confirmed(button, question) {
 }
 
 async function runExport(button) {
-  if (!confirmed(button, `Записать ${state.order.length} файлов? Нажмите ещё раз`)) return
+  if (!confirmed(button, t('export.confirm', state.order.length))) return
   stopAudio() // the player must let go of the files before they are renamed
   button.disabled = true
   try {
@@ -613,7 +665,7 @@ async function runExport(button) {
       rekordbox: $('#ex-xml').checked,
     })
     showLog(r.log)
-    toast('Сет записан в файлы')
+    toast(t('export.done'))
   } catch (err) {
     showLog(err.log, err.message)
     showError(err)
@@ -623,13 +675,13 @@ async function runExport(button) {
 }
 
 async function runRestore(button) {
-  if (!confirmed(button, 'Вернуть исходные имена и теги? Нажмите ещё раз')) return
+  if (!confirmed(button, t('restore.confirm'))) return
   stopAudio()
   button.disabled = true
   try {
     const r = await post('/api/restore')
     showLog(r.log)
-    toast('Файлы возвращены как были')
+    toast(t('restore.done'))
   } catch (err) {
     showLog(err.log, err.message)
     showError(err)
@@ -662,15 +714,15 @@ async function loadMix() {
 async function renderMix() {
   const list = $('#mix-transitions'), table = $('#mix-tracks')
   if (!state.order.length) {
-    list.innerHTML = '<li class="hint">Сет пуст.</li>'
+    list.innerHTML = `<li class="hint">${esc(t('mix.empty'))}</li>`
     table.innerHTML = ''
     return
   }
   const mix = await loadMix()
   const info = new Map(mix.tracks.map(m => [m.id, m]))
   list.innerHTML = mix.transitions.map((p, i) => transitionCard(p, i, info)).join('') ||
-    '<li class="hint">В сете один трек — переходов нет.</li>'
-  table.innerHTML = cueHead + state.order.map((id, i) => cueRow(track(id), info.get(id), i)).join('')
+    `<li class="hint">${esc(t('mix.one'))}</li>`
+  table.innerHTML = cueHead() + state.order.map((id, i) => cueRow(track(id), info.get(id), i)).join('')
   markPlaying()
 }
 
@@ -678,27 +730,27 @@ const cueChip = c => c ? `<i class="cue" style="background:rgb(${c.color.join(',
 
 function transitionCard(p, i, info) {
   const a = track(state.order[i]), b = track(state.order[i + 1]), w = posWidth()
-  const head = `<span class="pair">${pad(i + 1, w)} → ${pad(i + 2, w)}</span>
-    <span class="titles">${esc(a.title)}<i>→</i>${esc(b.title)}</span>`
+  const head = `<span class="pair">${pad(i + 1, w)} ${arrow()} ${pad(i + 2, w)}</span>
+    <span class="titles">${esc(a.title)}<i>${arrow()}</i>${esc(b.title)}</span>`
   if (!p) {
     return `<li class="mix-card none"><header>${head}</header>
-      <p class="note">У одного из треков не найдена бит-сетка — этот переход сводите на слух.</p></li>`
+      <p class="note">${esc(t('mix.no_grid'))}</p></li>`
   }
   const ma = info.get(a.id), mb = info.get(b.id)
   const mixIn = mb.cues.find(c => c.slot === 'A')
   return `<li class="mix-card" data-card="${i}">
     <header>${head}
-      <span class="meta">${p.bars} тактов · темп «${esc(b.title)}» ${signed(p.pitch)}% → ${ma.bpm.toFixed(2)} BPM</span>
-      <button data-mix="${i}">Прослушать</button>
+      <span class="meta">${esc(t('mix.meta', p.bars, b.title, signed(p.pitch), ma.bpm.toFixed(2)))}</span>
+      <button data-mix="${i}">${esc(t('mix.listen'))}</button>
     </header>
     ${lanes(p, ma, mb)}
     <ol class="steps">
-      <li><span class="n">1</span><time>${clock(p.startA.time)}</time><span class="at-bar">такт ${p.startA.bar}</span>
-        <span>В «${esc(a.title)}» запустите «${esc(b.title)}» с метки ${cueChip(mixIn)}MIX IN — <span class="clock">${clock(p.cueB.time)}</span></span></li>
-      <li><span class="n">2</span><time>${clock(p.swapA.time)}</time><span class="at-bar">такт ${p.swapA.bar}</span>
-        <span>Смена баса: в «${esc(b.title)}» это <span class="clock">${clock(p.swapB.time)}</span>, такт ${p.swapB.bar}</span></li>
-      <li><span class="n">3</span><time>${clock(p.endA.time)}</time><span class="at-bar">такт ${p.endA.bar}</span>
-        <span>«${esc(a.title)}» полностью выведен</span></li>
+      <li><span class="n">1</span><time>${clock(p.startA.time)}</time><span class="at-bar">${esc(t('mix.bar', p.startA.bar))}</span>
+        <span>${t('mix.step1', esc(a.title), esc(b.title), `${cueChip(mixIn)}MIX IN`, `<span class="clock">${clock(p.cueB.time)}</span>`)}</span></li>
+      <li><span class="n">2</span><time>${clock(p.swapA.time)}</time><span class="at-bar">${esc(t('mix.bar', p.swapA.bar))}</span>
+        <span>${t('mix.step2', esc(b.title), `<span class="clock">${clock(p.swapB.time)}</span>`, p.swapB.bar)}</span></li>
+      <li><span class="n">3</span><time>${clock(p.endA.time)}</time><span class="at-bar">${esc(t('mix.bar', p.endA.bar))}</span>
+        <span>${t('mix.step3', esc(a.title))}</span></li>
     </ol>
     ${p.note ? `<p class="note">${esc(p.note)}</p>` : ''}
   </li>`
@@ -735,15 +787,15 @@ function lanes(p, ma, mb) {
   return `<div class="lanes" data-from="${from}" data-to="${to}">
     <span>A</span>${svg(lane(ma, bar => bar))}
     <span>B</span>${svg(lane(mb, bar => bar >= p.startA.bar ? p.cueB.bar + bar - p.startA.bar : null))}
-    <div class="marks">${marks.map(([, bar]) => `<span style="left:${x(bar) / 10}%">т.${bar}</span>`).join('')}</div>
+    <div class="marks">${marks.map(([, bar]) => `<span style="left:${x(bar) / 10}%">${esc(t('mix.bar_short', bar))}</span>`).join('')}</div>
   </div>`
 }
 
-const cueHead = `<div class="cue-row head"><span>#</span><span>Трек и сетка</span><span>BPM</span><span>Точность</span><span>Структура и метки</span></div>`
+const cueHead = () => `<div class="cue-row head"><span>#</span><span>${esc(t('cue.track'))}</span><span>BPM</span><span>${esc(t('cue.precision'))}</span><span>${esc(t('cue.structure'))}</span></div>`
 
-function cueRow(t, m, i) {
+function cueRow(tr, m, i) {
   const [precClass, precText] = !m.jitter ? ['', '—']
-    : [m.jitter <= 2 ? 'good' : m.jitter <= 5 ? 'ok' : 'rough', `±${m.jitter.toFixed(1)} мс`]
+    : [m.jitter <= 2 ? 'good' : m.jitter <= 5 ? 'ok' : 'rough', t('cue.ms', m.jitter.toFixed(1))]
   const n = Math.max(1, m.bars.length)
   const strip = m.bars.map((v, b) => {
     const h = 3 + (v / 255) * 19
@@ -753,17 +805,17 @@ function cueRow(t, m, i) {
     const x = (((c.bar - 1) / n) * 1000).toFixed(1)
     return `<line x1="${x}" x2="${x}" y1="0" y2="22" style="stroke:rgb(${c.color.join(',')})"/>`
   }).join('')
-  let grid = 'бит-сетка не найдена'
-  if (m.bpm) grid = `первая доля ${clock(m.firstBeat)}` + (m.downbeatSure ? '' : ' · «раз» неочевиден — проверьте')
+  let grid = t('cue.no_grid')
+  if (m.bpm) grid = t('cue.first_beat', clock(m.firstBeat)) + (m.downbeatSure ? '' : ` · ${t('cue.downbeat_unsure')}`)
   return `<div class="cue-row">
     <span class="pos">${pad(i + 1, posWidth())}</span>
-    <div class="name"><b>${esc(t.title)}</b><span>${esc(t.artist)}</span>
-      <span class="grid-info${m.bpm && !m.downbeatSure ? ' warn' : ''}">${grid}</span></div>
+    <div class="name"><b>${esc(tr.title)}</b><span>${esc(tr.artist)}</span>
+      <span class="grid-info${m.bpm && !m.downbeatSure ? ' warn' : ''}">${esc(grid)}</span></div>
     <span class="bpm">${m.bpm ? m.bpm.toFixed(2) : '—'}</span>
-    <span class="prec ${precClass}" title="Типичное расстояние отдельных ударов от сетки">${precText}</span>
+    <span class="prec ${precClass}" title="${esc(t('cue.precision_title'))}">${esc(precText)}</span>
     <div>
       <svg viewBox="0 0 1000 22" preserveAspectRatio="none" aria-hidden="true">${strip}${cueLines}</svg>
-      <div class="cue-list">${m.cues.map(c => `<span>${cueChip(c)}${c.name} <b>${clock(c.time)}</b> · т.${c.bar}</span>`).join('')}</div>
+      <div class="cue-list">${m.cues.map(c => `<span>${cueChip(c)}${c.name} <b>${clock(c.time)}</b> · ${esc(t('mix.bar_short', c.bar))}</span>`).join('')}</div>
     </div>
   </div>`
 }
@@ -779,18 +831,19 @@ const deck = $('#audio-a')
 const player = { id: null, join: null, frame: 0, nodes: [] }
 const audioURL = (id, at) => `/audio/${encodeURIComponent(id)}#t=${Math.max(0, at).toFixed(1)}`
 let audioContext = null
+let master = null // GainNode, see mixer
 const decoded = new Map() // id → Promise<AudioBuffer>, the last few tracks
 
 function play(id, at) {
-  const t = track(id)
-  if (!t) return
+  const tr = track(id)
+  if (!tr) return
   if (player.join === null && player.id === id && at === undefined && deck.src) {
     deck.paused ? deck.play().catch(showError) : deck.pause()
     return
   }
   stopAudio()
   player.id = id
-  deck.src = audioURL(id, at ?? t.duration * 0.3) // a third in is usually past the intro
+  deck.src = audioURL(id, at ?? tr.duration * 0.3) // a third in is usually past the intro
   deck.play().catch(showError)
   renderDeck()
 }
@@ -807,6 +860,18 @@ function decode(id) {
   return decoded.get(id)
 }
 
+// mixer starts Web Audio on first use. Both decks of a transition play
+// through the master gain, which follows the volume control.
+function mixer() {
+  if (!audioContext) {
+    audioContext = new AudioContext()
+    master = audioContext.createGain()
+    master.gain.value = loudness()
+    master.connect(audioContext.destination)
+  }
+  return audioContext
+}
+
 // channel is one deck of the virtual mixer: source → bass EQ → volume.
 function channel(buffer, rate) {
   const source = audioContext.createBufferSource()
@@ -816,7 +881,7 @@ function channel(buffer, rate) {
   bass.type = 'lowshelf'
   bass.frequency.value = 150
   const volume = audioContext.createGain()
-  source.connect(bass).connect(volume).connect(audioContext.destination)
+  source.connect(bass).connect(volume).connect(master)
   return { source, bass: bass.gain, volume: volume.gain }
 }
 
@@ -830,14 +895,14 @@ async function playTransition(i) {
   stopAudio()
   const mix = await loadMix()
   const p = mix.transitions[i]
-  if (!p) return toast('У этого перехода нет бит-сетки', 'error')
+  if (!p) return toast(t('player.no_grid'), 'error')
   const ma = mix.tracks[i], mb = mix.tracks[i + 1]
 
-  audioContext ??= new AudioContext()
+  mixer()
   player.join = i
   player.id = ma.id
   renderDeck()
-  $('#deck-sub').textContent = 'Загружаю треки…'
+  $('#deck-sub').textContent = t('player.loading')
   const [bufferA, bufferB] = await Promise.all([decode(ma.id), decode(mb.id)])
   if (player.join !== i) return // stopped while loading
   await audioContext.resume()
@@ -873,7 +938,7 @@ async function playTransition(i) {
     const timeInA = from + audioContext.currentTime - t0
     const barInA = (timeInA - ma.firstBeat) / bar + 1
     $('#deck-fill').style.width = `${Math.min(100, Math.max(0, ((audioContext.currentTime - t0) / (end - t0)) * 100))}%`
-    $('#deck-clock').textContent = `${clock(Math.max(0, timeInA))} · такт ${Math.max(1, Math.floor(barInA))}`
+    $('#deck-clock').textContent = `${clock(Math.max(0, timeInA))} · ${t('mix.bar', Math.max(1, Math.floor(barInA)))}`
     const lanesEl = $(`.mix-card[data-card="${i}"] .lanes`)
     if (lanesEl) {
       const x = ((barInA - lanesEl.dataset.from) / (lanesEl.dataset.to - lanesEl.dataset.from)) * 1000
@@ -906,22 +971,22 @@ function togglePlay() {
 }
 
 function renderDeck() {
-  const t = track(player.id)
+  const tr = track(player.id)
   const mixing = player.join !== null
-  const playing = mixing || (Boolean(t) && !deck.paused)
+  const playing = mixing || (Boolean(tr) && !deck.paused)
   const button = $('#deck-play')
-  button.disabled = !t && !state.selected
+  button.disabled = !tr && !state.selected
   button.innerHTML = playing ? icon.pause : icon.play
-  button.setAttribute('aria-label', playing ? 'Пауза' : 'Играть')
+  button.setAttribute('aria-label', t(playing ? 'player.pause' : 'player.play'))
   if (mixing) {
     const b = track(state.order[player.join + 1])
-    $('#deck-title').textContent = `${t?.title} → ${b?.title}`
-    $('#deck-sub').textContent = `Переход ${pad(player.join + 1, posWidth())} → ${pad(player.join + 2, posWidth())} по меткам, бас меняется на сильной доле`
+    $('#deck-title').textContent = `${tr?.title} ${arrow()} ${b?.title}`
+    $('#deck-sub').textContent = t('player.transition', pad(player.join + 1, posWidth()), pad(player.join + 2, posWidth()))
   } else {
-    $('#deck-title').textContent = t ? `${t.title} — ${t.artist}` : 'Ничего не играет'
-    $('#deck-sub').textContent = t ? `${fmtBPM(t.bpm)} BPM · ${t.key || '—'} · ${t.keyName || ''}` : 'Двойной щелчок по треку — прослушать'
+    $('#deck-title').textContent = tr ? `${tr.title} — ${tr.artist}` : t('player.idle')
+    $('#deck-sub').textContent = tr ? `${fmtBPM(tr.bpm)} BPM · ${tr.key || '—'} · ${tr.keyName || ''}` : t('player.idle_hint')
   }
-  if (!t) {
+  if (!tr) {
     $('#deck-fill').style.width = '0'
     $('#deck-clock').textContent = '0:00'
   }
@@ -933,20 +998,61 @@ function markPlaying() {
   $$('.join').forEach(li => {
     const on = Number(li.dataset.join) === player.join
     li.classList.toggle('playing', on)
-    li.querySelector('button').textContent = on ? 'стоп' : 'слушать стык'
+    li.querySelector('button').textContent = t(on ? 'join.stop' : 'join.listen')
   })
   $$('[data-mix]').forEach(button => {
     const on = Number(button.dataset.mix) === player.join
     button.classList.toggle('on', on)
-    button.textContent = on ? 'Стоп' : 'Прослушать'
+    button.textContent = t(on ? 'mix.stop' : 'mix.listen')
   })
 }
 
 function updateClock() {
-  const t = track(player.id)
-  if (!t || player.join !== null) return
-  $('#deck-fill').style.width = `${Math.min(100, (deck.currentTime / t.duration) * 100)}%`
-  $('#deck-clock').textContent = `${fmtTime(deck.currentTime)} / ${fmtTime(t.duration)}`
+  const tr = track(player.id)
+  if (!tr || player.join !== null) return
+  $('#deck-fill').style.width = `${Math.min(100, (deck.currentTime / tr.duration) * 100)}%`
+  $('#deck-clock').textContent = `${fmtTime(deck.currentTime)} / ${fmtTime(tr.duration)}`
+}
+
+// ── Volume ────────────────────────────────────────────────────────────
+//
+// One control for everything that plays: the <audio> element of single
+// tracks and the master gain of transitions. The level is remembered in the
+// browser.
+
+const volume = { level: 80, muted: false } // level 0–100
+
+// loudness maps the control to gain. Hearing is roughly logarithmic, so a
+// squared curve makes the middle of the slider sound like half volume.
+const loudness = () => (volume.muted ? 0 : (volume.level / 100) ** 2)
+
+function loadVolume() {
+  try { Object.assign(volume, JSON.parse(localStorage.getItem('prodj:volume'))) } catch { /* defaults */ }
+}
+
+function setVolume(change) {
+  Object.assign(volume, change)
+  try { localStorage.setItem('prodj:volume', JSON.stringify(volume)) } catch { /* not remembered */ }
+  renderVolume()
+}
+
+function renderVolume() {
+  deck.volume = loudness()
+  if (master) master.gain.setTargetAtTime(loudness(), audioContext.currentTime, 0.015)
+  const silent = volume.muted || volume.level === 0
+  const slider = $('#volume'), button = $('#mute')
+  slider.value = volume.level
+  slider.style.setProperty('--level', `${volume.muted ? 0 : volume.level}%`)
+  slider.title = `${t('volume.label')}: ${volume.muted ? 0 : volume.level}%`
+  button.innerHTML = silent ? icon.muted : icon.speaker
+  button.classList.toggle('on', silent)
+  button.title = t(silent ? 'volume.unmute' : 'volume.mute')
+  button.setAttribute('aria-label', button.title)
+}
+
+function toggleMute() {
+  if (volume.level === 0) setVolume({ level: 50, muted: false })
+  else setVolume({ muted: !volume.muted })
 }
 
 // ── Notifications ─────────────────────────────────────────────────────
@@ -973,15 +1079,20 @@ async function busy(button, action) {
 
 // ── Folder menu ───────────────────────────────────────────────────────
 
-function closeFolderMenu() {
-  $('#folder-menu').hidden = true
-  $('#folder-toggle').setAttribute('aria-expanded', 'false')
+const menus = [['#folder-menu', '#folder-toggle'], ['#lang-menu', '#lang-toggle']]
+
+function closeMenus() {
+  for (const [menu, toggle] of menus) {
+    $(menu).hidden = true
+    $(toggle).setAttribute('aria-expanded', 'false')
+  }
 }
 
-function toggleFolderMenu() {
-  const menu = $('#folder-menu')
-  menu.hidden = !menu.hidden
-  $('#folder-toggle').setAttribute('aria-expanded', String(!menu.hidden))
+function toggleMenu(menu, toggle) {
+  const open = $(menu).hidden
+  closeMenus()
+  $(menu).hidden = !open
+  $(toggle).setAttribute('aria-expanded', String(open))
 }
 
 // ── Events ────────────────────────────────────────────────────────────
@@ -990,13 +1101,24 @@ function bindEvents() {
   $$('.tabs button').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)))
 
   // Folder choice: header menu and welcome screen.
-  $('#folder-toggle').addEventListener('click', e => { e.stopPropagation(); toggleFolderMenu() })
-  document.addEventListener('click', e => { if (!e.target.closest('.folder')) closeFolderMenu() })
+  $('#folder-toggle').addEventListener('click', e => { e.stopPropagation(); toggleMenu('#folder-menu', '#folder-toggle') })
+  $('#lang-toggle').addEventListener('click', e => { e.stopPropagation(); toggleMenu('#lang-menu', '#lang-toggle') })
+  $('#lang-menu').addEventListener('click', e => {
+    const b = e.target.closest('[data-lang]')
+    if (b) setLanguage(b.dataset.lang).catch(showError)
+  })
+  document.addEventListener('click', e => { if (!e.target.closest('.folder, .lang')) closeMenus() })
   document.addEventListener('click', e => {
     if (e.target.closest('[data-act="pick"]')) pickFolder().catch(showError)
     const recent = e.target.closest('[data-dir]')
     if (recent) openFolder(recent.dataset.dir).catch(showError)
   })
+  // The author's page opens in the user's own browser, not in the app window.
+  $('#github').addEventListener('click', e => {
+    e.preventDefault()
+    post('/api/github').catch(() => window.open(e.currentTarget.href, '_blank', 'noopener'))
+  })
+
   $('#paste-form').addEventListener('submit', e => {
     e.preventDefault()
     const dir = e.target.dir.value.trim()
@@ -1009,7 +1131,7 @@ function bindEvents() {
     const li = e.target.closest('li')
     if (li && e.target.closest('[data-act="in"]')) moveToSet(li.dataset.id).catch(showError)
   })
-  $('#build').addEventListener('click', e => busy(e.currentTarget, () => rebuild('Сет пересобран')))
+  $('#build').addEventListener('click', e => busy(e.currentTarget, () => rebuild(t('toast.rebuilt'))))
   $('#unlock-all').addEventListener('click', () => { state.locked.clear(); saveSet(); renderSet() })
 
   // Tools
@@ -1019,18 +1141,18 @@ function bindEvents() {
     state.curve = b.dataset.curve
     renderCurves()
     const name = state.curves.find(c => c.id === state.curve)?.name
-    rebuild(`Сет пересобран под кривую «${name}»`).catch(showError)
+    rebuild(t('toast.rebuilt_curve', name)).catch(showError)
   })
   $$('[data-weight]').forEach(input => {
     input.addEventListener('input', () => { input.nextElementSibling.textContent = `×${(input.value / 50).toFixed(1)}` })
     input.addEventListener('change', () => {
       state.weights[input.dataset.weight] = Number(input.value)
-      rebuild('Сет пересобран с новыми приоритетами').catch(showError)
+      rebuild(t('toast.rebuilt_weights')).catch(showError)
     })
   })
   $('#weights-reset').addEventListener('click', () => {
     state.weights = { ...DEFAULT_WEIGHTS }
-    rebuild('Приоритеты сброшены').catch(showError)
+    rebuild(t('toast.weights_reset')).catch(showError)
   })
   $('#overlap').addEventListener('change', e => {
     state.overlap = Math.max(0, Number(e.target.value) || 0)
@@ -1038,11 +1160,11 @@ function bindEvents() {
   })
   $('#build-slot').addEventListener('click', e => busy(e.currentTarget, async () => {
     const minutes = Number($('#slot-minutes').value)
-    if (!(minutes > 0)) throw new Error('Укажите длину слота в минутах')
+    if (!(minutes > 0)) throw new Error(t('slot.need_minutes'))
     const pool = state.order.length + state.bench.length
     await build(minutes)
     $('#slot-result').textContent =
-      `В сет вошло ${state.order.length} из ${pool}, ≈ ${fmtTime(state.summary?.mixLength ?? 0)} со сведением.`
+      t('slot.result', state.order.length, pool, fmtTime(state.summary?.mixLength ?? 0))
   }))
   $('#next-from').addEventListener('change', e => {
     state.selected = e.target.value
@@ -1058,7 +1180,7 @@ function bindEvents() {
     const b = e.target.closest('[data-insert]')
     if (!b) return
     moveToSet(b.dataset.insert, b.dataset.after)
-      .then(() => toast(`«${track(b.dataset.insert).title}» стоит после «${track(b.dataset.after).title}»`))
+      .then(() => toast(t('toast.inserted', track(b.dataset.insert).title, track(b.dataset.after).title)))
       .catch(showError)
   })
   $('#checks').addEventListener('click', e => {
@@ -1071,7 +1193,7 @@ function bindEvents() {
     try {
       await post('/api/settings', { bpmFloor: Number(e.target.value) })
       await refresh()
-      toast('Темп пересчитан для нового диапазона')
+      toast(t('toast.octave'))
     } catch (err) { showError(err) }
   })
 
@@ -1083,11 +1205,11 @@ function bindEvents() {
   $('#mix-copy').addEventListener('click', e => busy(e.currentTarget, async () => {
     const mix = await loadMix()
     await navigator.clipboard.writeText(mix.sheet)
-    toast('Лист меток скопирован')
+    toast(t('toast.copied'))
   }))
   $('#mix-save').addEventListener('click', e => busy(e.currentTarget, async () => {
     const r = await post('/api/cuesheet', { order: state.order, name: setName() })
-    toast(`Сохранено в папку сета: ${r.file}`)
+    toast(t('toast.saved', r.file))
   }))
 
   // Export
@@ -1100,11 +1222,13 @@ function bindEvents() {
   deck.addEventListener('pause', renderDeck)
   deck.addEventListener('ended', () => { if (player.join === null) stopAudio() })
   $('#deck-play').addEventListener('click', togglePlay)
+  $('#volume').addEventListener('input', e => setVolume({ level: Number(e.target.value), muted: false }))
+  $('#mute').addEventListener('click', toggleMute)
   $('#deck-scrub').addEventListener('click', e => {
-    const t = track(player.id)
-    if (!t || player.join !== null) return
+    const tr = track(player.id)
+    if (!tr || player.join !== null) return
     const box = e.currentTarget.getBoundingClientRect()
-    deck.currentTime = ((e.clientX - box.left) / box.width) * t.duration
+    deck.currentTime = ((e.clientX - box.left) / box.width) * tr.duration
   })
 
   document.addEventListener('keydown', onKey)
@@ -1178,12 +1302,19 @@ function bindSetList() {
 }
 
 function onKey(e) {
-  if (e.target.closest('input, select, textarea') || e.ctrlKey || e.metaKey || e.altKey) return
+  if (e.ctrlKey || e.metaKey || e.altKey) return
+  // Typing goes to the field. A slider keeps its arrow keys, but Space and M
+  // still work after the volume has been dragged.
+  if (e.target.closest?.('input, select, textarea')) {
+    const slider = e.target.matches('input[type="range"]')
+    if (!slider || (e.code !== 'Space' && e.code !== 'KeyM')) return
+  }
   if (e.code === 'Space') {
     e.preventDefault()
     e.target.blur?.()
     return togglePlay()
   }
+  if (e.code === 'KeyM') return toggleMute()
   if (state.view !== 'set') return
   switch (e.code) {
     case 'ArrowDown': e.preventDefault(); return step(1)
@@ -1207,7 +1338,10 @@ function reportErrors() {
 
 async function start() {
   reportErrors()
+  loadVolume()
   bindEvents()
+  await loadLanguage()
+  document.body.classList.remove('loading')
   state.curves = await get('/api/curves')
   await refresh()
   showView(location.hash.slice(1))

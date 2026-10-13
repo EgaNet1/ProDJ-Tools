@@ -13,14 +13,18 @@ import (
 	"path/filepath"
 
 	"prodjtools/internal/desktop"
+	"prodjtools/internal/i18n"
 	"prodjtools/internal/server"
 )
 
+// version is set at build time: -ldflags "-X main.version=1.2.3".
+var version = "dev"
+
 func main() {
 	var (
-		port     = flag.Int("port", 0, "порт сервера (0 — любой свободный)")
-		headless = flag.Bool("no-window", false, "не открывать окно; работать, пока процесс не остановят")
-		dir      = flag.String("dir", "", "сразу открыть эту папку")
+		port     = flag.Int("port", 0, "server port (0: any free port)")
+		headless = flag.Bool("no-window", false, "do not open a window; run until the process is stopped")
+		dir      = flag.String("dir", "", "open this folder at start")
 	)
 	flag.Parse()
 
@@ -37,7 +41,7 @@ func run(port int, headless bool, dir string) error {
 		return err
 	}
 	dataDir := filepath.Join(cacheDir, "ProDJTools")
-	app, err := server.New(dataDir)
+	app, err := server.New(dataDir, version)
 	if err != nil {
 		return err
 	}
@@ -51,7 +55,7 @@ func run(port int, headless bool, dir string) error {
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
-		return fmt.Errorf("не удалось запустить сервер: %w", err)
+		return fmt.Errorf("%s: %w", i18n.T("error.server"), err)
 	}
 	url := "http://" + listener.Addr().String()
 	go http.Serve(listener, app.Handler())
@@ -72,7 +76,7 @@ func run(port int, headless bool, dir string) error {
 	}
 
 	if err := desktop.OpenWindow(url, filepath.Join(dataDir, "window")); err != nil {
-		return fmt.Errorf("не удалось открыть окно: %w", err)
+		return fmt.Errorf("%s: %w", i18n.T("error.window"), err)
 	}
 	app.WatchWindow()
 	<-app.Closed()

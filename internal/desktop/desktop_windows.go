@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"unicode/utf16"
 	"unsafe"
+
+	"prodjtools/internal/i18n"
 )
 
 // OpenWindow shows url in a plain browser window without tabs or address
@@ -35,6 +37,11 @@ func OpenWindow(url, profile string) error {
 			return cmd.Process.Release()
 		}
 	}
+	return OpenURL(url)
+}
+
+// OpenURL opens url in the user's default browser.
+func OpenURL(url string) error {
 	return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
 }
 
@@ -71,7 +78,7 @@ func PickFolder(start string) (string, error) {
 		"-EncodedCommand", base64.StdEncoding.EncodeToString(encoded))
 	cmd.Env = append(os.Environ(),
 		"PRODJ_PICKER_SOURCE="+pickerSource,
-		"PRODJ_PICKER_TITLE=Папка с треками для сета",
+		"PRODJ_PICKER_TITLE="+i18n.T("picker.title"),
 		"PRODJ_PICKER_START="+start,
 	)
 	const createNoWindow = 0x08000000

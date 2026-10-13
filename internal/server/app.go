@@ -5,7 +5,6 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -13,12 +12,14 @@ import (
 	"strings"
 	"sync"
 
+	"prodjtools/internal/i18n"
 	"prodjtools/internal/library"
 )
 
 // App is the running program.
 type App struct {
 	dataDir string
+	version string
 	cache   *library.Cache
 	life    *lifeline
 
@@ -35,6 +36,7 @@ type App struct {
 type settings struct {
 	Recent   []string `json:"recent"`
 	BPMFloor float64  `json:"bpmFloor"`
+	Lang     string   `json:"lang"` // interface language; empty until first detected
 }
 
 type scanStatus struct {
@@ -47,13 +49,15 @@ type scanStatus struct {
 
 const maxRecent = 8
 
-// New prepares the program; dataDir holds the cache and settings.
-func New(dataDir string) (*App, error) {
+// New prepares the program; dataDir holds the cache and settings, version
+// is shown in the interface.
+func New(dataDir, version string) (*App, error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, err
 	}
 	a := &App{
 		dataDir:  dataDir,
+		version:  version,
 		cache:    library.OpenCache(filepath.Join(dataDir, "analysis-cache.json")),
 		life:     newLifeline(),
 		settings: settings{BPMFloor: 88},
@@ -61,6 +65,7 @@ func New(dataDir string) (*App, error) {
 	if data, err := os.ReadFile(a.settingsPath()); err == nil {
 		json.Unmarshal(data, &a.settings)
 	}
+	i18n.Set(a.settings.Lang)
 	return a, nil
 }
 
@@ -82,7 +87,7 @@ func (a *App) Shutdown() {
 func (a *App) Open(dir string) error {
 	dir = filepath.Clean(strings.Trim(strings.TrimSpace(dir), `"`))
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-		return fmt.Errorf("папка не найдена: %s", dir)
+		return i18n.Error("error.no_folder", dir)
 	}
 
 	a.mu.Lock()
