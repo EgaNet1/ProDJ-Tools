@@ -1,4 +1,4 @@
-<img src="assets/icon.png" alt="" width="96" align="right">
+
 
 # ProDJ Tools
 
