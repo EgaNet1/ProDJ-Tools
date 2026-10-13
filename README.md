@@ -1,4 +1,4 @@
-<img src="assets/icon.png" alt="" width="96" align="right">
+
 
 # ProDJ Tools
 
@@ -88,44 +88,6 @@
 | ![Сет](docs/screenshots/set.png) | ![Метки треков](docs/screenshots/cues.png) |
 | **Сведение** | **Инструменты** |
 | ![Сведение](docs/screenshots/mixing.png) | ![Инструменты](docs/screenshots/tools.png) |
-
-## Сборка из исходников
-
-Нужны только Windows 10/11, PowerShell и git. Go устанавливать не надо: при первом запуске скрипты сами скачают нужную версию (из `go.mod`) в папку `.goenv` проекта и проверят её контрольную сумму. Это аналог виртуального окружения Python — в систему ничего не устанавливается.
-
-```powershell
-git clone https://github.com/EgaNet1/ProDJ-Tools.git
-cd ProDJ-Tools
-.\build.ps1                          # проверки, тесты и сборка ProDJTools.exe
-.\build-installer.ps1                # то же + установщик dist\ProDJTools-Setup-<версия>.exe
-.\build-installer.ps1 -Version 1.2.0 # явно указать версию (по умолчанию — из файла VERSION)
-```
-
-Если Windows запрещает запуск скриптов, выполните один раз `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
-
-Номер версии хранится в файле [VERSION](VERSION) и попадает в свойства exe, в установщик и в шапку программы рядом с логотипом. Иконка лежит в [assets/](assets/); её рисует скрипт `go run assets/genicon.go`.
-
-Установщик собирается [Inno Setup 6](https://jrsoftware.org/isinfo.php) по сценарию [installer/ProDJTools.iss](installer/ProDJTools.iss). Если Inno Setup не установлен, `build-installer.ps1` скачает его в папку `.tools` проекта и проверит цифровую подпись.
-
-Для работы с кодом вручную:
-
-```powershell
-. .\activate.ps1       # подключить Go из .goenv в текущем окне PowerShell
-go test ./...
-go run ./cmd/prodj -no-window -port 8080   # сервер без окна, интерфейс: http://127.0.0.1:8080
-deactivate
-```
-
-### Выпуск версии
-
-Сборка в GitHub Actions ([.github/workflows/build.yml](.github/workflows/build.yml)) проверяет каждый push. Чтобы выпустить релиз, впишите новую версию в `VERSION`, закоммитьте и поставьте тег с тем же номером:
-
-```powershell
-git tag v1.0.1
-git push origin main v1.0.1
-```
-
-Actions соберёт установщик и переносной exe и опубликует их в [Releases](https://github.com/EgaNet1/ProDJ-Tools/releases). Ссылка «Скачать» в начале этого файла всегда ведёт на последний релиз.
 
 ## Устройство
 

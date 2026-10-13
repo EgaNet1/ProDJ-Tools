@@ -1,4 +1,3 @@
-<img src="assets/icon.png" alt="" width="96" align="right">
 
 # ProDJ Tools
 
@@ -88,44 +87,6 @@ Keys: `Space` pause, `↑` `↓` select a track, `Enter` play, `L` lock, `Del` r
 | ![Set](docs/screenshots/set.png) | ![Track cues](docs/screenshots/cues.png) |
 | **Mixing** | **Tools** |
 | ![Mixing](docs/screenshots/mixing.png) | ![Tools](docs/screenshots/tools.png) |
-
-## Building from source
-
-All you need is Windows 10/11, PowerShell and git. You don't have to install Go: on first run, the scripts download the version listed in `go.mod` into the project's `.goenv` folder and verify its checksum. It works like a Python virtual environment, so nothing is installed system-wide.
-
-```powershell
-git clone https://github.com/EgaNet1/ProDJ-Tools.git
-cd ProDJ-Tools
-.\build.ps1                          # vet, test and build ProDJTools.exe
-.\build-installer.ps1                # same, plus the installer dist\ProDJTools-Setup-<version>.exe
-.\build-installer.ps1 -Version 1.2.0 # explicit version (default: the VERSION file)
-```
-
-If Windows refuses to run the scripts, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
-
-The version number lives in [VERSION](VERSION) and goes into the exe properties, the installer and the app header next to the logo. The icon is in [assets/](assets/); `go run assets/genicon.go` draws it.
-
-The installer is built with [Inno Setup 6](https://jrsoftware.org/isinfo.php) from [installer/ProDJTools.iss](installer/ProDJTools.iss). If Inno Setup is not installed, `build-installer.ps1` downloads it into the project's `.tools` folder and verifies its digital signature.
-
-For working on the code directly:
-
-```powershell
-. .\activate.ps1       # put Go from .goenv on PATH in this PowerShell window
-go test ./...
-go run ./cmd/prodj -no-window -port 8080   # server without a window, UI at http://127.0.0.1:8080
-deactivate
-```
-
-### Releasing
-
-GitHub Actions ([.github/workflows/build.yml](.github/workflows/build.yml)) checks every push. To publish a release, put the new version into `VERSION`, commit, and push a tag with the same number:
-
-```powershell
-git tag v1.0.1
-git push origin main v1.0.1
-```
-
-Actions builds the installer and the portable exe and publishes them under [Releases](https://github.com/EgaNet1/ProDJ-Tools/releases). The Download link at the top of this file always points to the latest release.
 
 ## How it works
 
