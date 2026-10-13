@@ -6,7 +6,7 @@
 
 [![Скачать](https://img.shields.io/github/v/release/EgaNet1/ProDJ-Tools?label=%D1%81%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C&color=f0a330)](https://github.com/EgaNet1/ProDJ-Tools/releases/latest)
 [![Сборка](https://github.com/EgaNet1/ProDJ-Tools/actions/workflows/build.yml/badge.svg)](https://github.com/EgaNet1/ProDJ-Tools/actions/workflows/build.yml)
-![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4)
+[![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4)](#установка)
 [![Лицензия MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Программа для сборки DJ-сета из папки с треками. Определяет темп, ключ и энергию каждого трека, расставляет треки так, чтобы они плавно сводились, и записывает порядок в сами файлы — Rekordbox, Serato и любой плеер видят его без этой программы.

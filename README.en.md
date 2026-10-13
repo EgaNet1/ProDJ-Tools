@@ -6,7 +6,7 @@
 
 [![Download](https://img.shields.io/github/v/release/EgaNet1/ProDJ-Tools?label=download&color=f0a330)](https://github.com/EgaNet1/ProDJ-Tools/releases/latest)
 [![Build](https://github.com/EgaNet1/ProDJ-Tools/actions/workflows/build.yml/badge.svg)](https://github.com/EgaNet1/ProDJ-Tools/actions/workflows/build.yml)
-![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4)
+[![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4)](#installation)
 [![MIT license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A desktop app that turns a folder of tracks into a DJ set. It detects the tempo, key and energy of every track, orders the tracks so they mix smoothly, and writes that order into the files themselves, so Rekordbox, Serato and any player can see it without this app.
