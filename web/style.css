@@ -703,6 +703,44 @@ svg .kind-intro, svg .kind-drop, svg .kind-verse, svg .kind-break, svg .kind-out
 .cue-chips time { font: 12px var(--mono); }
 .cue-chips span { color: var(--faint); font: 11px var(--mono); }
 
+/* Jump through a transition by clicking its timeline. */
+.tl-body { cursor: pointer; }
+
+/* ── Ready set ──────────────────────────────────────────────────────── */
+
+.mixdown .mix-actions { align-items: center; }
+#md-format button { padding: 7px 14px; font: 12px var(--mono); }
+#md-format button[aria-checked="true"] { background: var(--accent-soft); color: var(--accent); }
+
+.md-export { margin-bottom: 16px; padding: 14px 18px; }
+.md-export-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; font-size: 13px; }
+.md-export-row button { padding: 4px 12px; font-size: 12px; }
+.md-export .progress div { transition: width .3s; }
+
+.md-overview { margin-bottom: 22px; padding: 16px 18px 18px; }
+.md-overview-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.md-overview .listen { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; font-size: 12px; }
+.md-overview .listen .ico svg { width: 12px; height: 12px; display: block; fill: currentColor; }
+.md-overview .listen.on { border-color: var(--accent); color: var(--accent); }
+
+.md-strip { position: relative; height: 48px; border-radius: 6px; background: var(--bg); overflow: hidden; cursor: pointer; }
+.md-clip {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  border-radius: 4px;
+  background: #3a3e45;
+  overflow: hidden;
+}
+.md-clip.odd { top: 10px; bottom: 2px; background: #4a4f58; }
+.md-clip span { display: block; padding: 4px 8px; overflow: hidden; color: var(--text); font-size: 11px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.md-join { position: absolute; top: 0; bottom: 0; background: rgba(95, 191, 127, .16); box-shadow: inset 0 0 0 1px rgba(95, 191, 127, .4); pointer-events: none; }
+.md-swap { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--rough); pointer-events: none; }
+.md-head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); box-shadow: 0 0 8px var(--accent); pointer-events: none; }
+
+#md-list .listen { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; font-size: 12px; }
+#md-list .listen .ico svg { width: 12px; height: 12px; display: block; fill: currentColor; }
+
 /* ── Deck ───────────────────────────────────────────────────────────── */
 
 .deck {
@@ -781,7 +819,7 @@ kbd + kbd { margin-inline-start: 0; }
 
 /* The layout mirrors through logical properties, but timelines keep time
    running left to right, as DJ software does in every language. */
-[dir="rtl"] .scrub, [dir="rtl"] .tl-body, [dir="rtl"] .cue-strip, [dir="rtl"] .volume input, [dir="rtl"] .progress { direction: ltr; }
+[dir="rtl"] .scrub, [dir="rtl"] .tl-body, [dir="rtl"] .cue-strip, [dir="rtl"] .md-strip, [dir="rtl"] .volume input, [dir="rtl"] .progress { direction: ltr; }
 
 /* Numbers, ranges and signs ("120–128", "+1.7%", "01 → 02") read left to
    right inside right-to-left text. */

@@ -14,6 +14,7 @@ require (
 )
 
 require (
+	github.com/braheezy/shine-mp3 v0.2.0 // indirect
 	github.com/go-audio/riff v1.0.0 // indirect
 	github.com/icza/bitio v1.1.0 // indirect
 	github.com/mewkiz/pkg v0.0.0-20250417130911-3f050ff8c56d // indirect

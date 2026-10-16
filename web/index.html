@@ -17,6 +17,7 @@
     <nav class="tabs" role="tablist">
       <button role="tab" data-view="set" aria-selected="true" data-i18n="tab.set"></button>
       <button role="tab" data-view="mix" aria-selected="false" data-i18n="tab.mix"></button>
+      <button role="tab" data-view="mixdown" aria-selected="false" data-i18n="tab.mixdown"></button>
       <button role="tab" data-view="tools" aria-selected="false" data-i18n="tab.tools"></button>
       <button role="tab" data-view="export" aria-selected="false" data-i18n="tab.export"></button>
     </nav>
@@ -134,6 +135,43 @@
           <li data-i18n-html="mix.how.grid"></li>
         </ol>
       </details>
+    </section>
+
+    <!-- ───────────────────────── Ready set ──────────────────────── -->
+    <section class="view mix mixdown" id="view-mixdown" hidden>
+      <header class="mix-head">
+        <div>
+          <h1 data-i18n="md.title"></h1>
+          <p data-i18n="md.text"></p>
+        </div>
+        <div class="mix-actions">
+          <div class="segmented" id="md-format" role="radiogroup" data-i18n-label="md.format">
+            <button role="radio" data-format="flac">FLAC</button>
+            <button role="radio" data-format="mp3">MP3</button>
+          </div>
+          <button class="primary" id="md-download" data-i18n="md.download"></button>
+        </div>
+      </header>
+
+      <div class="panel md-export" id="md-export" hidden>
+        <div class="md-export-row">
+          <span id="md-export-text"></span>
+          <button class="ghost" id="md-cancel" data-i18n="md.cancel"></button>
+        </div>
+        <div class="progress"><div id="md-export-bar"></div></div>
+      </div>
+
+      <section class="panel md-overview">
+        <div class="md-overview-head">
+          <button class="listen" id="md-play"><span class="ico"></span><span class="txt"></span></button>
+          <span class="fact mono" id="md-length"></span>
+          <p class="mix-how-short" data-i18n="md.seek_hint"></p>
+        </div>
+        <div class="md-strip" id="md-strip"></div>
+      </section>
+
+      <p class="label" data-i18n="md.transitions"></p>
+      <ol class="mix-list" id="md-list"></ol>
     </section>
 
     <!-- ────────────────────────── Tools ───────────────────────── -->

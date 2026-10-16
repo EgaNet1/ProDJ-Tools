@@ -102,6 +102,10 @@ const state = {
   mix: null,          // cue points and transition plans for the order
   mixKey: '',         // what the mix plan was computed for
   mixMode: 'transitions', // the Mixing tab shows 'transitions' or 'cues'
+  md: null,           // the set laid out as one mix: { key, length, clips, joins, ways }
+  mdKey: '',          // what md was laid out for
+  mdFormat: 'mp3',    // file format of the Ready set download
+  mdFollowing: false, // an export's progress is being shown
   mixGen: 0,          // bumped whenever tracks are reloaded
   log: [],            // lines of the last export or restore
 }
@@ -368,16 +372,17 @@ function renderAll() {
 function renderView() {
   if (state.view === 'set') renderSet()
   if (state.view === 'mix') renderMix().catch(showError)
+  if (state.view === 'mixdown') renderMixdown().catch(showError)
   if (state.view === 'tools') renderTools()
   if (state.view === 'export') renderExport()
 }
 
 function showView(view) {
-  if (!['set', 'mix', 'tools', 'export'].includes(view)) view = 'set'
+  if (!['set', 'mix', 'mixdown', 'tools', 'export'].includes(view)) view = 'set'
   state.view = view
   history.replaceState(null, '', `#${view}`) // a reload reopens the same tab
   $$('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.view === view))
-  for (const v of ['set', 'mix', 'tools', 'export']) $(`#view-${v}`).hidden = v !== view
+  for (const v of ['set', 'mix', 'mixdown', 'tools', 'export']) $(`#view-${v}`).hidden = v !== view
   renderView()
 }
 
@@ -947,6 +952,131 @@ function cueCard(tr, m, i) {
   </article>`
 }
 
+// ── Ready set ─────────────────────────────────────────────────────────
+//
+// The set as one continuous mix: the way of every transition is chosen as
+// on the Mixing tab (and shared with it), the mix plays from any point, and
+// it downloads as one FLAC or MP3 file rendered by the program.
+
+// waysFor lists the way of every transition of the current order.
+const waysFor = mix => mix.transitions.map((ways, i) => wayOf(i, ways) ?? 'outro')
+
+// loadMixdown lays the set out as one mix on the server, again only when
+// the order or a way changed.
+async function loadMixdown() {
+  const mix = await loadMix()
+  const ways = waysFor(mix)
+  const key = [state.mixKey, ...ways].join('|')
+  if (state.mdKey !== key) {
+    const md = await post('/api/mixdown/plan', { order: state.order, ways })
+    state.md = { ...md, ways }
+    state.mdKey = key
+    // A mix that is playing moves on to the new layout at the same moment.
+    if (player.mix) playMix(Math.min(mixTime(), md.length - 1))
+  }
+  return { mix, md: state.md }
+}
+
+async function renderMixdown() {
+  $$('#md-format button').forEach(b => b.setAttribute('aria-checked', b.dataset.format === state.mdFormat))
+  const list = $('#md-list'), strip = $('#md-strip')
+  $('#md-download').disabled = !state.order.length || state.scan.running
+  $('#md-play').disabled = !state.order.length
+  if (!state.order.length) {
+    list.innerHTML = `<li class="hint">${esc(t('mix.empty'))}</li>`
+    strip.innerHTML = ''
+    $('#md-length').textContent = ''
+    return
+  }
+  const { mix, md } = await loadMixdown()
+  $('#md-length').textContent = t('md.length', fmtTime(md.length))
+  strip.innerHTML = mixStrip(md)
+  list.innerHTML = mix.transitions.map((ways, i) => mixdownCard(mix, md, ways, i)).join('') ||
+    `<li class="hint">${esc(t('mix.one'))}</li>`
+  markPlaying()
+  if (player.mix) updateClock()
+}
+
+// mixStrip draws the whole set: every track as a block, every transition as
+// the stretch where two tracks play together with the bass swap marked.
+function mixStrip(md) {
+  const x = s => (s / md.length) * 100
+  const w = posWidth()
+  const blocks = md.clips.map((c, i) => {
+    const tr = track(c.id)
+    return `<div class="md-clip${i % 2 ? ' odd' : ''}" style="left:${x(c.start)}%;width:${x(c.end) - x(c.start)}%" title="${esc(`${pad(i + 1, w)} · ${tr?.title} — ${tr?.artist}`)}">
+      <span>${pad(i + 1, w)} ${esc(tr?.title)}</span>
+    </div>`
+  }).join('')
+  const joins = md.joins.map(j => `<div class="md-join" style="left:${x(j.start)}%;width:${x(j.end) - x(j.start)}%"></div>
+    <div class="md-swap" style="left:${x(j.swap)}%"></div>`).join('')
+  return `${blocks}${joins}<div class="md-head" hidden></div>`
+}
+
+function mixdownCard(mix, md, ways, i) {
+  const a = track(state.order[i]), b = track(state.order[i + 1]), w = posWidth()
+  const way = wayOf(i, ways), p = way ? ways[way] : null
+  const join = md.joins[i]
+  const head = `<header class="mix-card-head">
+      <span class="pair">${pad(i + 1, w)} ${arrow()} ${pad(i + 2, w)}</span>
+      <h3 class="titles"><span>${esc(a.title)}</span><i>${arrow()}</i><span>${esc(b.title)}</span></h3>
+      ${p ? wayToggle(i, ways, way, a) : ''}
+      <button class="listen" data-md-listen="${i}"><span class="ico">${icon.play}</span><span class="txt">${esc(t('md.listen'))}</span></button>
+    </header>`
+  const judged = state.transitions[i]
+  const facts = [
+    join ? `<span class="fact mono">${esc(t('md.at', fmtTime(join.start)))}</span>` : '',
+    p ? `<span class="fact">${esc(t('mix.blend', p.bars))}</span>` : '',
+    p ? `<span class="fact mono">${esc(t('mix.tempo', b.title, signed(p.pitch), mix.tracks[i].bpm.toFixed(2)))}</span>` : '',
+    judged ? `<span class="fact ${judged.grade}"><i class="dot"></i>${esc(judged.key)}</span>` : '',
+  ].join('')
+  const about = p ? t(`mix.way.${way}.about`, a.title, b.title) : t('mix.no_grid')
+  return `<li class="mix-card${p ? '' : ' none'}" data-md="${i}">
+    ${head}
+    <div class="facts">${facts}</div>
+    <p class="way-about">${esc(about)}</p>
+  </li>`
+}
+
+// ── Download ──
+
+async function downloadSet(button) {
+  button.disabled = true
+  try {
+    const mix = await loadMix()
+    await post('/api/mixdown/export', { order: state.order, ways: waysFor(mix), format: state.mdFormat, name: setName() })
+    await followExport()
+  } finally {
+    button.disabled = false
+  }
+}
+
+// followExport shows the progress of the file being rendered and hands it
+// to the browser as a download when it is ready.
+async function followExport() {
+  const box = $('#md-export')
+  for (;;) {
+    const job = await get('/api/mixdown/job')
+    box.hidden = !job.running
+    if (job.running) {
+      const percent = Math.floor(job.progress * 100)
+      $('#md-export-text').textContent = t('md.rendering', percent)
+      $('#md-export-bar').style.width = `${percent}%`
+      await new Promise(resolve => setTimeout(resolve, 400))
+      continue
+    }
+    if (job.error) throw new Error(t('md.failed', job.error))
+    if (job.ready) {
+      const link = document.createElement('a')
+      link.href = '/api/mixdown/file'
+      link.download = job.file
+      link.click()
+      toast(t('md.done', job.file))
+    }
+    return
+  }
+}
+
 // ── Player ────────────────────────────────────────────────────────────
 //
 // Single tracks stream through an <audio> element. Transitions play through
@@ -955,7 +1085,9 @@ function cueCard(tr, m, i) {
 // tens of milliseconds late — too late to check a beat-matched transition.
 
 const deck = $('#audio-a')
-const player = { id: null, join: null, frame: 0, nodes: [] }
+// join: the transition playing (Mixing tab), with span, its stretch of
+// track A; mix: the whole set playing (Ready set tab), from where.
+const player = { id: null, join: null, span: null, mix: null, run: null, frame: 0, nodes: [] }
 const audioURL = (id, at) => `/audio/${encodeURIComponent(id)}#t=${Math.max(0, at).toFixed(1)}`
 let audioContext = null
 let master = null // GainNode, see mixer
@@ -1012,14 +1144,42 @@ function channel(buffer, rate) {
   return { source, bass: bass.gain, volume: volume.gain }
 }
 
+// automate sets an AudioParam to follow points [time in A, value], joined
+// by straight lines, as heard from time from on: the value at from right
+// away, then ramps to every later point. Starting mid-way through a ramp
+// therefore sounds exactly as if the transition had played from the start.
+function automate(param, points, from, at) {
+  param.setValueAtTime(valueAt(points, from), at(from))
+  for (const [time, v] of points) if (time > from) param.linearRampToValueAtTime(v, at(time))
+}
+
+// valueAt reads points [x, value] joined by straight lines at x.
+function valueAt(points, x) {
+  if (x <= points[0][0]) return points[0][1]
+  for (let k = 1; k < points.length; k++) {
+    const [x1, v1] = points[k]
+    if (x < x1) {
+      const [x0, v0] = points[k - 1]
+      return v0 + (v1 - v0) * ((x - x0) / (x1 - x0))
+    }
+  }
+  return points[points.length - 1][1]
+}
+
 // playTransition plays transition i exactly as planned: A from four bars
 // before B comes in; B from its MIX IN cue, on A's bar and at A's tempo,
 // without bass; at the swap A's bass goes out and B's comes in; A fades out
 // by the end of the blend (or at once, when the plan says so). Tempo
 // matching changes B's pitch slightly, as on a turntable.
-async function playTransition(i) {
-  if (player.join === i) return stopAudio()
+//
+// With a time (seconds of A) it plays from there instead: the timeline, the
+// deck's scrub bar and the arrow keys jump through the transition this way.
+async function playTransition(i, start) {
+  if (player.join === i && start === undefined) return stopAudio()
   stopAudio()
+  // Every start gets its own token: the stopped sources of an earlier start
+  // report their end a moment later and must not stop this one.
+  const run = (player.run = {})
   const mix = await loadMix()
   const p = planOf(mix, i)
   if (!p) return toast(t('player.no_grid'), 'error')
@@ -1031,40 +1191,40 @@ async function playTransition(i) {
   renderDeck()
   $('#deck-sub').textContent = t('player.loading')
   const [bufferA, bufferB] = await Promise.all([decode(ma.id), decode(mb.id)])
-  if (player.join !== i) return // stopped while loading
+  if (player.run !== run) return // stopped or restarted while loading
   await audioContext.resume()
 
   const bar = 240 / ma.bpm
-  const from = Math.max(0, p.startA.time - 4 * bar)
+  const begin = Math.max(0, p.startA.time - 4 * bar)
+  const finish = p.endA.time + 4 * bar
+  const from = Math.min(Math.max(start ?? begin, begin), finish - bar)
   const t0 = audioContext.currentTime + 0.1
   const at = timeInA => t0 + timeInA - from
-  const a = channel(bufferA, 1), b = channel(bufferB, foldRatio(ma.bpm / mb.bpm))
+  const rate = foldRatio(ma.bpm / mb.bpm)
+  const a = channel(bufferA, 1), b = channel(bufferB, rate)
+  const mid = (p.startA.time + p.swapA.time) / 2
 
-  b.volume.setValueAtTime(0, t0)
-  b.volume.setValueAtTime(0, at(p.startA.time))
-  b.volume.linearRampToValueAtTime(1, at((p.startA.time + p.swapA.time) / 2))
-  b.bass.setValueAtTime(-26, t0)
-  b.bass.setValueAtTime(-26, at(p.swapA.time) - 0.01)
-  b.bass.linearRampToValueAtTime(0, at(p.swapA.time))
-  a.bass.setValueAtTime(0, at(p.swapA.time) - 0.01)
-  a.bass.linearRampToValueAtTime(-26, at(p.swapA.time))
-  a.volume.setValueAtTime(1, at(p.swapA.time))
-  a.volume.linearRampToValueAtTime(0, at(p.endA.time))
+  automate(b.volume, [[begin, 0], [p.startA.time, 0], [mid, 1]], from, at)
+  automate(b.bass, [[begin, -26], [p.swapA.time - 0.01, -26], [p.swapA.time, 0]], from, at)
+  automate(a.bass, [[begin, 0], [p.swapA.time - 0.01, 0], [p.swapA.time, -26]], from, at)
+  automate(a.volume, [[begin, 1], [p.swapA.time, 1], [p.endA.time, 0]], from, at)
 
-  const end = at(p.endA.time) + 4 * bar
+  const end = at(finish)
   a.source.start(t0, from)
-  b.source.start(at(p.startA.time), p.cueB.time)
+  const bFrom = Math.max(p.startA.time, from) // B joins on its bar, or is already playing
+  b.source.start(at(bFrom), p.cueB.time + (bFrom - p.startA.time) * rate)
   a.source.stop(end)
   b.source.stop(end)
-  b.source.onended = () => { if (player.join === i) stopAudio() }
+  b.source.onended = () => { if (player.run === run) stopAudio() }
   player.nodes = [a.source, b.source]
+  player.span = { begin, finish, bar, now: () => from + audioContext.currentTime - t0 }
   renderDeck()
 
   const tick = () => {
-    if (player.join !== i) return
-    const timeInA = from + audioContext.currentTime - t0
+    if (player.run !== run) return
+    const timeInA = player.span.now()
     const barInA = (timeInA - ma.firstBeat) / bar + 1
-    $('#deck-fill').style.width = `${Math.min(100, Math.max(0, ((audioContext.currentTime - t0) / (end - t0)) * 100))}%`
+    $('#deck-fill').style.width = `${Math.min(100, Math.max(0, ((timeInA - begin) / (finish - begin)) * 100))}%`
     $('#deck-clock').textContent = `${clock(Math.max(0, timeInA))} · ${t('mix.bar', Math.max(1, Math.floor(barInA)))}`
     const line = $(`.mix-card[data-card="${i}"] .timeline`)
     if (line) {
@@ -1078,6 +1238,31 @@ async function playTransition(i) {
   tick()
 }
 
+// seekTransition jumps within the transition that is playing (or starts
+// transition i) at time timeInA of track A.
+function seekTransition(i, timeInA) {
+  playTransition(i, timeInA).catch(showError)
+}
+
+// ── The whole set ──
+//
+// The Ready set tab plays the mix as the server renders it, streamed as WAV
+// from any point: what you hear is what the downloaded file will be.
+
+function playMix(at) {
+  const md = state.md
+  if (!md) return
+  stopAudio()
+  const from = Math.min(Math.max(0, at), Math.max(0, md.length - 1))
+  player.mix = { from }
+  deck.src = `/api/mixdown/stream?key=${md.key}&from=${from.toFixed(3)}`
+  deck.play().catch(showError)
+  renderDeck()
+}
+
+// mixTime is where in the set the deck is.
+const mixTime = () => (player.mix ? player.mix.from + deck.currentTime : 0)
+
 function stopAudio() {
   cancelAnimationFrame(player.frame)
   for (const node of player.nodes) {
@@ -1090,24 +1275,41 @@ function stopAudio() {
   deck.load() // drops the connection, so the file is no longer held open
   player.join = null
   player.id = null
+  player.span = null
+  player.mix = null
+  player.run = null
   renderDeck()
 }
 
 function togglePlay() {
+  if (player.mix) return deck.paused ? deck.play().catch(showError) : deck.pause()
   if (player.join !== null) return stopAudio()
   if (player.id) return play(player.id)
   if (state.selected) play(state.selected)
 }
 
+// clipAt is the track of the set playing at time t of the mix: the newest
+// one once the next has come in.
+function clipAt(t) {
+  const clips = state.md?.clips ?? []
+  let found = null
+  for (const c of clips) if (c.start <= t && t < c.end) found = c
+  return found
+}
+
 function renderDeck() {
   const tr = track(player.id)
   const mixing = player.join !== null
-  const playing = mixing || (Boolean(tr) && !deck.paused)
+  const playing = player.mix ? !deck.paused : mixing || (Boolean(tr) && !deck.paused)
   const button = $('#deck-play')
-  button.disabled = !tr && !state.selected
+  button.disabled = !tr && !state.selected && !player.mix
   button.innerHTML = playing ? icon.pause : icon.play
   button.setAttribute('aria-label', t(playing ? 'player.pause' : 'player.play'))
-  if (mixing) {
+  if (player.mix) {
+    const now = track(clipAt(mixTime())?.id)
+    $('#deck-title').textContent = t('md.deck', setName())
+    $('#deck-sub').textContent = now ? `${now.title} — ${now.artist}` : ''
+  } else if (mixing) {
     const b = track(state.order[player.join + 1])
     $('#deck-title').textContent = `${tr?.title} ${arrow()} ${b?.title}`
     $('#deck-sub').textContent = t('player.transition', pad(player.join + 1, posWidth()), pad(player.join + 2, posWidth()))
@@ -1115,7 +1317,7 @@ function renderDeck() {
     $('#deck-title').textContent = tr ? `${tr.title} — ${tr.artist}` : t('player.idle')
     $('#deck-sub').textContent = tr ? `${fmtBPM(tr.bpm)} BPM · ${tr.key || '—'} · ${tr.keyName || ''}` : t('player.idle_hint')
   }
-  if (!tr) {
+  if (!tr && !player.mix) {
     $('#deck-fill').style.width = '0'
     $('#deck-clock').textContent = '0:00'
   }
@@ -1135,9 +1337,29 @@ function markPlaying() {
     button.querySelector('.ico').innerHTML = on ? icon.pause : icon.play
     button.querySelector('.txt').textContent = t(on ? 'mix.stop' : 'mix.listen')
   })
+  const mdPlay = $('#md-play')
+  if (mdPlay) {
+    const on = Boolean(player.mix) && !deck.paused
+    mdPlay.classList.toggle('on', on)
+    mdPlay.querySelector('.ico').innerHTML = on ? icon.pause : icon.play
+    mdPlay.querySelector('.txt').textContent = t(on ? 'md.pause' : 'md.play')
+  }
 }
 
 function updateClock() {
+  if (player.mix) {
+    const now = mixTime(), length = state.md?.length || 1
+    $('#deck-fill').style.width = `${Math.min(100, (now / length) * 100)}%`
+    $('#deck-clock').textContent = `${fmtTime(now)} / ${fmtTime(length)}`
+    const head = $('#md-strip .md-head')
+    if (head) {
+      head.hidden = false
+      head.style.left = `${Math.min(100, (now / length) * 100)}%`
+    }
+    const title = track(clipAt(now)?.id)
+    if (title) $('#deck-sub').textContent = `${title.title} — ${title.artist}`
+    return
+  }
   const tr = track(player.id)
   if (!tr || player.join !== null) return
   $('#deck-fill').style.width = `${Math.min(100, (deck.currentTime / tr.duration) * 100)}%`
@@ -1337,6 +1559,15 @@ function bindEvents() {
   $('#mix-transitions').addEventListener('click', e => {
     const listen = e.target.closest('[data-mix]')
     if (listen) return playTransition(Number(listen.dataset.mix)).catch(showError)
+    const body = e.target.closest('.tl-body')
+    if (body) {
+      const card = body.closest('[data-card]'), line = body.closest('.timeline')
+      const i = Number(card.dataset.card), ma = state.mix.tracks[i]
+      const box = body.getBoundingClientRect()
+      const f = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width))
+      const bar = Number(line.dataset.from) + f * (line.dataset.to - line.dataset.from)
+      return seekTransition(i, ma.firstBeat + (bar - 1) * (240 / ma.bpm))
+    }
     const way = e.target.closest('[data-way]')
     if (!way) return
     if (way.getAttribute('aria-disabled') === 'true') return toast(way.title)
@@ -1345,6 +1576,35 @@ function bindEvents() {
     if (player.join === i) stopAudio()
     renderMix().catch(showError)
   })
+  $('#md-format').addEventListener('click', e => {
+    const b = e.target.closest('[data-format]')
+    if (!b) return
+    state.mdFormat = b.dataset.format
+    try { localStorage.setItem('prodj:mdformat', state.mdFormat) } catch { /* not remembered */ }
+    renderMixdown().catch(showError)
+  })
+  $('#md-download').addEventListener('click', e => {
+    state.mdFollowing = true
+    downloadSet(e.currentTarget).catch(showError).finally(() => { state.mdFollowing = false })
+  })
+  $('#md-cancel').addEventListener('click', () => post('/api/mixdown/cancel').catch(showError))
+  $('#md-play').addEventListener('click', () => (player.mix ? togglePlay() : playMix(0)))
+  $('#md-strip').addEventListener('click', e => {
+    if (!state.md) return
+    const box = e.currentTarget.getBoundingClientRect()
+    playMix(((e.clientX - box.left) / box.width) * state.md.length)
+  })
+  $('#md-list').addEventListener('click', e => {
+    const listen = e.target.closest('[data-md-listen]')
+    if (listen) return playMix(state.md.joins[Number(listen.dataset.mdListen)].start - 8)
+    const way = e.target.closest('[data-way]')
+    if (!way) return
+    if (way.getAttribute('aria-disabled') === 'true') return toast(way.title)
+    const i = Number(way.dataset.i)
+    mixWays.set(`${state.order[i]}>${state.order[i + 1]}`, way.dataset.way)
+    renderMixdown().catch(showError)
+  })
+
   $('#mix-copy').addEventListener('click', e => busy(e.currentTarget, async () => {
     const mix = await loadMix()
     await navigator.clipboard.writeText(mix.sheet)
@@ -1368,10 +1628,12 @@ function bindEvents() {
   $('#volume').addEventListener('input', e => setVolume({ level: Number(e.target.value), muted: false }))
   $('#mute').addEventListener('click', toggleMute)
   $('#deck-scrub').addEventListener('click', e => {
-    const tr = track(player.id)
-    if (!tr || player.join !== null) return
     const box = e.currentTarget.getBoundingClientRect()
-    deck.currentTime = ((e.clientX - box.left) / box.width) * tr.duration
+    const f = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width))
+    if (player.mix) return playMix(f * state.md.length)
+    if (player.span) return seekTransition(player.join, player.span.begin + f * (player.span.finish - player.span.begin))
+    const tr = track(player.id)
+    if (tr) deck.currentTime = f * tr.duration
   })
 
   document.addEventListener('keydown', onKey)
@@ -1458,6 +1720,12 @@ function onKey(e) {
     return togglePlay()
   }
   if (e.code === 'KeyM') return toggleMute()
+  if ((e.code === 'ArrowLeft' || e.code === 'ArrowRight') && (player.mix || player.span)) {
+    e.preventDefault()
+    const dir = e.code === 'ArrowLeft' ? -1 : 1
+    if (player.mix) return playMix(mixTime() + dir * 15)
+    return seekTransition(player.join, player.span.now() + dir * 4 * player.span.bar)
+  }
   if (state.view !== 'set') return
   switch (e.code) {
     case 'ArrowDown': e.preventDefault(); return step(1)
@@ -1482,6 +1750,7 @@ function reportErrors() {
 async function start() {
   reportErrors()
   loadVolume()
+  try { state.mdFormat = localStorage.getItem('prodj:mdformat') || state.mdFormat } catch { /* default */ }
   bindEvents()
   await loadLanguage()
   document.body.classList.remove('loading')

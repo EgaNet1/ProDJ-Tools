@@ -61,8 +61,14 @@ Supported formats: FLAC, MP3 and WAV. Tags are written to FLAC and MP3.
 - Two ways to mix every pair: **via the outro** (the classic: B comes in over A's outro and drops as it ends) and **after the first drop** (B comes in over A's calm part at cue C, and its drop plays instead of A's second drop).
 - The plan of a transition is three steps with exact min:sec.ms times and bar numbers: when to start B, when to swap the bass, when to take A out. A timeline shows the parts of both tracks and the moments ①②③.
 - Any genre: for hip-hop and other slow tracks (70–90 BPM) and for fast ones (180+ BPM), cues follow the real bar, according to the chosen tempo octave.
-- "Preview" plays the transition exactly as planned: B starts on the bar, tempo-matched, and the bass swaps on the downbeat.
+- "Preview" plays the transition exactly as planned: B starts on the bar, tempo-matched, and the bass swaps on the downbeat. Click the timeline of a transition to listen from that bar; `←` `→` jump 4 bars.
 - The cue sheet is saved to a text file. On export, the grid and cues go into Rekordbox XML (hot cues A–F and memory cues).
+
+**Ready set**: the whole set as one audio file
+- Every transition is chosen just as on the Mixing tab: via the outro (at the end of the track) or after the first drop (mid-track). The choice is shared by both tabs.
+- Transitions sound exactly as the Mixing tab plays them: the same tempo matching, the same bass filter, the same bars. After a transition the track glides back to its own tempo.
+- Listen from any point: click the set strip, `←` `→` jump 15 seconds, and every pair has a "Hear the transition" button.
+- "Download set" saves the whole mix as **FLAC** (lossless, 16-bit / 44.1 kHz) or **MP3** (320 kbit/s), through a peak limiter so overlapping tracks never clip.
 
 **Tools**
 - **Energy curve**: the shape of the set, such as ramp-up, arc, waves, plateau or cool-down. Both energy and tempo follow the curve.
@@ -85,8 +91,10 @@ Keys: `Space` pause, `↑` `↓` select a track, `Enter` play, `L` lock, `Del` r
 | Set | Track cues |
 |---|---|
 | ![Set](docs/screenshots/set.png) | ![Track cues](docs/screenshots/cues.png) |
-| **Mixing** | **Tools** |
-| ![Mixing](docs/screenshots/mixing.png) | ![Tools](docs/screenshots/tools.png) |
+| **Mixing** | **Ready set** |
+| ![Mixing](docs/screenshots/mixing.png) | ![Ready set](docs/screenshots/ready.png) |
+| **Tools** | |
+| ![Tools](docs/screenshots/tools.png) | |
 
 ## How it works
 

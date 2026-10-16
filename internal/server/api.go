@@ -47,6 +47,12 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/log", handleLog)
 	mux.HandleFunc("POST /api/mixplan", a.handleMixPlan)
 	mux.HandleFunc("POST /api/cuesheet", a.handleCueSheet)
+	mux.HandleFunc("POST /api/mixdown/plan", a.handleMixdownPlan)
+	mux.HandleFunc("GET /api/mixdown/stream", a.handleMixdownStream)
+	mux.HandleFunc("POST /api/mixdown/export", a.handleMixdownExport)
+	mux.HandleFunc("GET /api/mixdown/job", a.handleMixdownJob)
+	mux.HandleFunc("POST /api/mixdown/cancel", a.handleMixdownCancel)
+	mux.HandleFunc("GET /api/mixdown/file", a.handleMixdownFile)
 	mux.HandleFunc("GET /api/alive", a.life.serve)
 	return guard(mux)
 }

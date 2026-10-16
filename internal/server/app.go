@@ -31,6 +31,8 @@ type App struct {
 	energy   map[string]float64
 	scan     scanStatus
 	scanID   int // identifies the latest scan, so a stale one can tell it was superseded
+
+	md mixdownState // the Ready set tab; has its own lock
 }
 
 type settings struct {
